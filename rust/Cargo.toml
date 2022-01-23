@@ -11,19 +11,6 @@ bench = false
 
 [dependencies]
 panic-halt = "0.2.0"
-ufmt = "0.1.0"
-nb = "0.1.2"
 embedded-hal = "0.2.3"
-arduino-hal = { git = "https://github.com/rahix/avr-hal", rev = "f84c0dff774c2292bc932b670955165161ecc7d1", features = ["sparkfun-promicro"] }
-
-[profile.dev]
-panic = "abort"
-lto = true
-opt-level = "s"
-
-[profile.release]
-panic = "abort"
-codegen-units = 1
-debug = true
-lto = true
-opt-level = "s"
+trinket_m0 = { version = "0.11.0", features = ["unproven"] }
+cortex-m-rt = "0.7"
