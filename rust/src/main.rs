@@ -3,28 +3,46 @@
 
 use bsp::hal;
 use panic_halt as _;
+
+use apa102_spi as apa102;
+use bitbang_hal as bb;
 use trinket_m0 as bsp; // TODO work out how to use the HAL and PAC crates directly
 
 use cortex_m_rt::entry;
 use hal::clock::GenericClockController;
-use hal::gpio::v2::{Pins, E};
+use hal::gpio::v2::Pins;
 use hal::pac::Peripherals;
 use hal::prelude::*;
-use hal::pwm::{Channel, Pwm1};
+use hal::timer::TimerCounter;
+
+use apa102::Apa102;
+use smart_leds::SmartLedsWrite;
+use smart_leds_trait::RGB8;
 
 #[entry]
 fn main() -> ! {
     // Configure peripherals
 
     let mut peri = Peripherals::take().unwrap();
-
     let pins = Pins::new(peri.PORT);
 
-    let enc_a = pins.pa02.into_pull_up_input();
-    let enc_b = pins.pa09.into_pull_up_input();
-    let button = pins.pa07.into_pull_up_input();
+    // Input matrix
 
-    pins.pa06.into_alternate::<E>();
+    let mut rows = (
+        pins.pa06.into_push_pull_output(),
+        pins.pa07.into_push_pull_output(),
+    );
+    let cols = (
+        pins.pa08.into_pull_down_input(),
+        pins.pa02.into_pull_down_input(),
+        pins.pa09.into_pull_down_input(),
+    );
+
+    // DotStar LED control
+
+    let di = pins.pa00.into_push_pull_output();
+    let ci = pins.pa01.into_push_pull_output();
+    let nc = pins.pa14.into_floating_input();
 
     let mut clocks = GenericClockController::with_internal_32kosc(
         peri.GCLK,
@@ -32,60 +50,114 @@ fn main() -> ! {
         &mut peri.SYSCTRL,
         &mut peri.NVMCTRL,
     );
-    let gclk0 = clocks.gclk0();
 
-    let mut pwm1 = Pwm1::new(
-        &clocks.tcc0_tcc1(&gclk0).unwrap(),
-        1.khz(),
-        peri.TCC1,
-        &mut peri.PM,
-    );
-    let max_duty = pwm1.get_max_duty();
+    let gclk0 = clocks.gclk0();
+    let timer_clock = clocks.tcc2_tc3(&gclk0).unwrap();
+    let mut timer = TimerCounter::tc3_(&timer_clock, peri.TC3, &mut peri.PM);
+    timer.start(5.khz());
+
+    // FIXME use hardware SPI if possible
+    // https://docs.rs/atsamd-hal/latest/atsamd_hal/sercom/v2/spi/index.html
+    let spi = bb::spi::SPI::new(apa102::MODE, nc, di, ci, timer);
+    let mut dostar = Apa102::new(spi);
+
+    #[rustfmt::skip]
+    let colours: [RGB8; 7] = [
+        RGB8 {r: 148, g: 0, b: 211},
+        RGB8 {r: 75, g: 0, b: 130},
+        RGB8 {r: 0, g: 0, b: 255},
+        RGB8 {r: 0, g: 255, b: 0},
+        RGB8 {r: 255, g: 255, b: 0},
+        RGB8 {r: 255, g: 127, b: 0},
+        RGB8 {r: 255, g: 0, b: 0},
+    ];
+
+    // Input
+
+    let mut toggle_out: Option<bool>;
+    let mut toggle_state = false;
+
+    let mut btn_a_out: bool;
+    let mut btn_a_state = false;
+
+    let mut btn_b_out: bool;
+    let mut btn_b_state = false;
+
+    let mut enc_out: EncoderOut;
+    let mut enc_state = Enc::NEUTRAL;
 
     // Program state
 
-    let mut led_brightness = 31;
-    let mut led_state = true;
-
-    let mut button_state = false;
-    let mut enc_state = Enc::NEUTRAL;
+    let mut led_on = true;
+    let mut led_colour: usize = 3;
+    let mut led_brightness: u8 = 31;
+    let mut colour = adjust_brightess(&colours[0], led_brightness);
 
     loop {
-        let (es, e_out) = read_encoder(enc_a.is_low().unwrap(), enc_b.is_low().unwrap(), enc_state);
-        enc_state = es;
-        let (bs, b_out) = read_button(button.is_high().unwrap(), button_state);
-        button_state = bs;
+        // Read inputs
 
-        if b_out {
-            led_state = !led_state;
+        rows.0.set_high().unwrap();
 
-            if !led_state {
-                pwm1.set_duty(Channel::_0, 0);
-            }
+        (enc_state, enc_out) = read_encoder(
+            cols.1.is_high().unwrap(),
+            cols.2.is_high().unwrap(),
+            enc_state,
+        );
+
+        rows.0.set_low().unwrap();
+
+        rows.1.set_high().unwrap();
+
+        (btn_a_state, btn_a_out) = read_button(cols.0.is_high().unwrap(), btn_a_state);
+        (btn_b_state, btn_b_out) = read_button(cols.1.is_high().unwrap(), btn_b_state);
+        (toggle_state, toggle_out) = read_toggle(cols.2.is_low().unwrap(), toggle_state);
+
+        rows.1.set_low().unwrap();
+
+        // Update state
+
+        match toggle_out {
+            Some(true) => led_on = true,
+            Some(false) => led_on = false,
+            _ => (),
         }
 
-        if !led_state {
-            continue;
+        match enc_out {
+            EncoderOut::CW if led_brightness < 247 => led_brightness += 8,
+            EncoderOut::CCW if led_brightness > 8 => led_brightness -= 8,
+            _ => (),
         }
 
-        led_brightness = match e_out {
-            EncoderOut::CW if led_brightness < 63 => led_brightness + 1,
-            EncoderOut::CCW if led_brightness > 0 => led_brightness - 1,
-            _ => led_brightness,
+        if btn_a_out && led_colour < 6 {
+            led_colour = led_colour + 1;
+        }
+
+        if btn_b_out && led_colour > 0 {
+            led_colour = led_colour - 1;
+        }
+
+        // Update LED
+
+        let c = if led_on {
+            adjust_brightess(&colours[led_colour], led_brightness)
+        } else {
+            RGB8 { r: 0, g: 0, b: 0 }
         };
-        let duty = LED_BRIGHTNESS_MAP[led_brightness] * max_duty / 255;
 
-        pwm1.set_duty(Channel::_0, duty);
+        if colour != c {
+            dostar.write([c].iter().cloned()).unwrap();
+            colour = c;
+        }
     }
 }
 
-// Output
-
-const LED_BRIGHTNESS_MAP: [u32; 64] = [
-    0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 23, 24, 26, 27,
-    29, 31, 33, 35, 37, 39, 42, 44, 47, 50, 53, 56, 60, 63, 67, 71, 76, 80, 85, 90, 95, 101, 107,
-    114, 120, 128, 135, 143, 152, 161, 170, 180, 191, 203, 215, 227, 241, 255,
-];
+fn adjust_brightess(colour: &RGB8, brightness: u8) -> RGB8 {
+    RGB8 {
+        r: (colour.r as u32 * brightness as u32 / 255) as u8,
+        g: (colour.g as u32 * brightness as u32 / 255) as u8,
+        b: (colour.b as u32 * brightness as u32 / 255) as u8,
+    }
+}
 
 // Input
 
@@ -96,21 +168,30 @@ fn read_button(input: bool, state: bool) -> (bool, bool) {
     }
 }
 
-#[derive(PartialEq, Eq)]
+fn read_toggle(input: bool, state: bool) -> (bool, Option<bool>) {
+    match (state, input) {
+        (false, true) => (input, Some(true)),
+        (true, false) => (input, Some(false)),
+        _ => (input, None),
+    }
+}
+
+#[derive(PartialEq, Eq, Clone, Copy)]
 struct Enc(u8);
 
 impl Enc {
-    pub const NEUTRAL: Enc = Enc(0b1111);
-    pub const CW_A: Enc = Enc(0b1101);
-    pub const CW_B: Enc = Enc(0b0100);
-    pub const CW_C: Enc = Enc(0b0010);
-    pub const CW_D: Enc = Enc(0b1011);
-    pub const CCW_A: Enc = Enc(0b1110);
-    pub const CCW_B: Enc = Enc(0b1000);
-    pub const CCW_C: Enc = Enc(0b0001);
-    pub const CCW_D: Enc = Enc(0b0111);
+    pub const NEUTRAL: Enc = Enc(0b0000);
+    pub const CW_A: Enc = Enc(0b0010);
+    pub const CW_B: Enc = Enc(0b1011);
+    pub const CW_C: Enc = Enc(0b1101);
+    pub const CW_D: Enc = Enc(0b0100);
+    pub const CCW_A: Enc = Enc(0b0001);
+    pub const CCW_B: Enc = Enc(0b0111);
+    pub const CCW_C: Enc = Enc(0b1110);
+    pub const CCW_D: Enc = Enc(0b1000);
 }
 
+#[derive(Clone, Copy)]
 enum EncoderOut {
     None,
     CW,
