@@ -233,7 +233,6 @@ name = "rust-playground"
 version = "0.1.0"
 dependencies = [
  "apa102-spi",
- "bitbang-hal",
  "cortex-m-rt",
  "embedded-hal",
  "panic-halt",

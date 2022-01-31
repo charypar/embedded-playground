@@ -14,8 +14,7 @@ panic-halt = "0.2.0"
 embedded-hal = "0.2.3"
 trinket_m0 = { version = "0.11.0", features = ["unproven"] }
 cortex-m-rt = "0.7"
-apa102-spi = "0.3"
-bitbang-hal = "0.3.2"
 smart-leds = "0.3"
 smart-leds-trait = "0.2"
+apa102-spi = "0.3"
 

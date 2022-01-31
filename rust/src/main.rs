@@ -2,10 +2,10 @@
 #![no_main]
 
 use bsp::hal;
+
 use panic_halt as _;
 
 use apa102_spi as apa102;
-use bitbang_hal as bb;
 use trinket_m0 as bsp; // TODO work out how to use the HAL and PAC crates directly
 
 use cortex_m_rt::entry;
@@ -13,7 +13,7 @@ use hal::clock::GenericClockController;
 use hal::gpio::v2::Pins;
 use hal::pac::Peripherals;
 use hal::prelude::*;
-use hal::timer::TimerCounter;
+use hal::sercom::v2::{spi, Sercom1};
 
 use apa102::Apa102;
 use smart_leds::SmartLedsWrite;
@@ -21,8 +21,6 @@ use smart_leds_trait::RGB8;
 
 #[entry]
 fn main() -> ! {
-    // Configure peripherals
-
     let mut peri = Peripherals::take().unwrap();
     let pins = Pins::new(peri.PORT);
 
@@ -38,27 +36,28 @@ fn main() -> ! {
         pins.pa09.into_pull_down_input(),
     );
 
-    // DotStar LED control
+    // DotStar LED control over SPI on SERCOM1
 
-    let di = pins.pa00.into_push_pull_output();
-    let ci = pins.pa01.into_push_pull_output();
-    let nc = pins.pa14.into_floating_input();
+    // Set up the SERCOM1 pad on the DotStar LED pins (CI - PA01 and DI - PA00)
+    let pads = spi::Pads::<Sercom1>::default()
+        .data_out(pins.pa00)
+        .sclk(pins.pa01);
 
+    // Configure GCLK for SERCOM1
     let mut clocks = GenericClockController::with_internal_32kosc(
         peri.GCLK,
         &mut peri.PM,
         &mut peri.SYSCTRL,
         &mut peri.NVMCTRL,
     );
-
     let gclk0 = clocks.gclk0();
-    let timer_clock = clocks.tcc2_tc3(&gclk0).unwrap();
-    let mut timer = TimerCounter::tc3_(&timer_clock, peri.TC3, &mut peri.PM);
-    timer.start(5.khz());
+    let clock = clocks.sercom1_core(&gclk0).unwrap();
 
-    // FIXME use hardware SPI if possible
-    // https://docs.rs/atsamd-hal/latest/atsamd_hal/sercom/v2/spi/index.html
-    let spi = bb::spi::SPI::new(apa102::MODE, nc, di, ci, timer);
+    // Create the SPI interface and wrap it in Apa102 LED driver
+    let spi = spi::Config::new(&peri.PM, peri.SERCOM1, pads, clock)
+        .spi_mode(apa102_spi::MODE)
+        .baud(24.mhz())
+        .enable();
     let mut dostar = Apa102::new(spi);
 
     #[rustfmt::skip]
@@ -89,7 +88,7 @@ fn main() -> ! {
     // Program state
 
     let mut led_on = true;
-    let mut led_colour: usize = 3;
+    let mut led_colour: usize = 5;
     let mut led_brightness: u8 = 31;
     let mut colour = adjust_brightess(&colours[0], led_brightness);
 
