@@ -1,23 +1,26 @@
 #![no_std]
 #![no_main]
 
-use bsp::hal;
-
 use panic_halt as _;
 
-use apa102_spi as apa102;
-use trinket_m0 as bsp; // TODO work out how to use the HAL and PAC crates directly
-
 use cortex_m_rt::entry;
+
+use atsamd_hal as hal;
 use hal::clock::GenericClockController;
 use hal::gpio::v2::Pins;
-use hal::pac::Peripherals;
 use hal::prelude::*;
 use hal::sercom::v2::{spi, Sercom1};
+use hal::usb::UsbBus;
 
-use apa102::Apa102;
+use hal::pac;
+use pac::Peripherals;
+
+use apa102_spi::Apa102;
 use smart_leds::SmartLedsWrite;
 use smart_leds_trait::RGB8;
+use usb_device::class_prelude::UsbBusAllocator;
+use usb_device::device::{UsbDeviceBuilder, UsbVidPid};
+use usbd_serial::{SerialPort, USB_CLASS_CDC};
 
 #[entry]
 fn main() -> ! {
@@ -51,25 +54,33 @@ fn main() -> ! {
         &mut peri.NVMCTRL,
     );
     let gclk0 = clocks.gclk0();
-    let clock = clocks.sercom1_core(&gclk0).unwrap();
 
     // Create the SPI interface and wrap it in Apa102 LED driver
-    let spi = spi::Config::new(&peri.PM, peri.SERCOM1, pads, clock)
+
+    let spi_clock = clocks.sercom1_core(&gclk0).unwrap();
+    let spi = spi::Config::new(&peri.PM, peri.SERCOM1, pads, spi_clock)
         .spi_mode(apa102_spi::MODE)
         .baud(24.mhz())
         .enable();
     let mut dostar = Apa102::new(spi);
 
-    #[rustfmt::skip]
-    let colours: [RGB8; 7] = [
-        RGB8 {r: 148, g: 0, b: 211},
-        RGB8 {r: 75, g: 0, b: 130},
-        RGB8 {r: 0, g: 0, b: 255},
-        RGB8 {r: 0, g: 255, b: 0},
-        RGB8 {r: 255, g: 255, b: 0},
-        RGB8 {r: 255, g: 127, b: 0},
-        RGB8 {r: 255, g: 0, b: 0},
-    ];
+    // Enable USB
+
+    let dm = pins.pa24;
+    let dp = pins.pa25;
+    let usb_clock = clocks.usb(&gclk0).unwrap();
+
+    let usb_bus = UsbBus::new(&usb_clock, &mut peri.PM, dm, dp, peri.USB);
+    let usb_allocator = UsbBusAllocator::new(usb_bus);
+
+    let mut serial = SerialPort::new(&usb_allocator);
+
+    let mut usb_dev = UsbDeviceBuilder::new(&usb_allocator, UsbVidPid(0x16c0, 0x27dd))
+        .manufacturer("Niche")
+        .product("Serial port")
+        .serial_number("0000")
+        .device_class(USB_CLASS_CDC)
+        .build();
 
     // Input
 
@@ -87,10 +98,23 @@ fn main() -> ! {
 
     // Program state
 
+    #[rustfmt::skip]
+    let colours: [RGB8; 7] = [
+        RGB8 {r: 148, g: 0, b: 211},
+        RGB8 {r: 75, g: 0, b: 130},
+        RGB8 {r: 0, g: 0, b: 255},
+        RGB8 {r: 0, g: 255, b: 0},
+        RGB8 {r: 255, g: 255, b: 0},
+        RGB8 {r: 255, g: 127, b: 0},
+        RGB8 {r: 255, g: 0, b: 0},
+    ];
+
     let mut led_on = true;
     let mut led_colour: usize = 5;
     let mut led_brightness: u8 = 31;
     let mut colour = adjust_brightess(&colours[0], led_brightness);
+
+    let mut out_buffer = [0u8; 64];
 
     loop {
         // Read inputs
@@ -116,23 +140,37 @@ fn main() -> ! {
         // Update state
 
         match toggle_out {
-            Some(true) => led_on = true,
-            Some(false) => led_on = false,
+            Some(true) => {
+                led_on = true;
+                serial.write("ON\n\r".as_bytes()).unwrap();
+            }
+            Some(false) => {
+                led_on = false;
+                serial.write("OFF\n\r".as_bytes()).unwrap();
+            }
             _ => (),
         }
 
         match enc_out {
-            EncoderOut::CW if led_brightness < 247 => led_brightness += 8,
-            EncoderOut::CCW if led_brightness > 8 => led_brightness -= 8,
+            EncoderOut::CW if led_brightness < 247 => {
+                led_brightness += 8;
+                serial.write("UP\n\r".as_bytes()).unwrap();
+            }
+            EncoderOut::CCW if led_brightness > 8 => {
+                led_brightness -= 8;
+                serial.write("DOWN\n\r".as_bytes()).unwrap();
+            }
             _ => (),
         }
 
         if btn_a_out && led_colour < 6 {
             led_colour = led_colour + 1;
+            serial.write("A\n\r".as_bytes()).unwrap();
         }
 
         if btn_b_out && led_colour > 0 {
             led_colour = led_colour - 1;
+            serial.write("B\n\r".as_bytes()).unwrap();
         }
 
         // Update LED
@@ -147,6 +185,10 @@ fn main() -> ! {
             dostar.write([c].iter().cloned()).unwrap();
             colour = c;
         }
+
+        // USB
+
+        usb_dev.poll(&mut [&mut serial]);
     }
 }
 
