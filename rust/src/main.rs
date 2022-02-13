@@ -1,139 +1,220 @@
-#![no_std]
+#![deny(unsafe_code)]
 #![no_main]
+#![no_std]
 
 use panic_halt as _;
 
-use cortex_m_rt::entry;
+use rtic::app;
 
-use atsamd_hal as hal;
-use hal::clock::GenericClockController;
-use hal::gpio::v2::Pins;
-use hal::prelude::*;
-use hal::sercom::v2::{spi, Sercom1};
-use hal::usb::UsbBus;
-
-use hal::pac;
-use pac::Peripherals;
-
-use apa102_spi::Apa102;
-use smart_leds::SmartLedsWrite;
 use smart_leds_trait::RGB8;
-use usb_device::class_prelude::UsbBusAllocator;
-use usb_device::device::{UsbDeviceBuilder, UsbVidPid};
-use usbd_serial::{SerialPort, USB_CLASS_CDC};
 
-#[entry]
-fn main() -> ! {
-    let mut peri = Peripherals::take().unwrap();
-    let pins = Pins::new(peri.PORT);
+#[app(device = atsamd_hal::pac, peripherals = true, dispatchers = [EVSYS])]
+mod app {
+    use atsamd_hal as hal;
+    use hal::prelude::*;
+    use hal::typelevel::NoneT;
 
-    // Input matrix
+    use hal::clock::GenericClockController;
+    use hal::gpio::v2::{
+        Alternate, Input, Output, Pin, Pins, PullDown, PushPull, D, PA00, PA01, PA02, PA06, PA07,
+        PA08, PA09, PA10,
+    };
+    use hal::rtc::{Count32Mode, Duration, Rtc};
+    use hal::sercom::v2::{spi, Sercom1};
+    use hal::usb::UsbBus;
 
-    let mut rows = (
-        pins.pa06.into_push_pull_output(),
-        pins.pa07.into_push_pull_output(),
-    );
-    let cols = (
-        pins.pa08.into_pull_down_input(),
-        pins.pa02.into_pull_down_input(),
-        pins.pa09.into_pull_down_input(),
-    );
+    use apa102_spi::Apa102;
+    use smart_leds::SmartLedsWrite;
+    use smart_leds_trait::RGB8;
+    use usb_device::class_prelude::UsbBusAllocator;
+    use usb_device::device::{UsbDevice, UsbDeviceBuilder, UsbVidPid};
+    use usbd_serial::{SerialPort, USB_CLASS_CDC};
 
-    // DotStar LED control over SPI on SERCOM1
+    use super::{adjust_brightess, COLOURS};
+    use super::{Debounced, EncoderOut, Rotary};
 
-    // Set up the SERCOM1 pad on the DotStar LED pins (CI - PA01 and DI - PA00)
-    let pads = spi::Pads::<Sercom1>::default()
-        .data_out(pins.pa00)
-        .sclk(pins.pa01);
+    #[monotonic(binds = RTC, default = true)]
+    type RtcMonotonic = Rtc<Count32Mode>;
 
-    // Configure GCLK for SERCOM1
-    let mut clocks = GenericClockController::with_internal_32kosc(
-        peri.GCLK,
-        &mut peri.PM,
-        &mut peri.SYSCTRL,
-        &mut peri.NVMCTRL,
-    );
-    let gclk0 = clocks.gclk0();
+    type DotStar = Apa102<
+        spi::Spi<
+            spi::Config<
+                spi::Pads<Sercom1, NoneT, Pin<PA00, Alternate<D>>, Pin<PA01, Alternate<D>>>,
+            >,
+            spi::Tx,
+        >,
+    >;
 
-    // Create the SPI interface and wrap it in Apa102 LED driver
+    pub struct Inputs {
+        toggle: Debounced<bool>,
+        button_a: Debounced<bool>,
+        button_b: Debounced<bool>,
+        encoder: Rotary,
+    }
 
-    let spi_clock = clocks.sercom1_core(&gclk0).unwrap();
-    let spi = spi::Config::new(&peri.PM, peri.SERCOM1, pads, spi_clock)
-        .spi_mode(apa102_spi::MODE)
-        .baud(24.mhz())
-        .enable();
-    let mut dostar = Apa102::new(spi);
+    pub struct PinMatrix {
+        rows: (Pin<PA06, Output<PushPull>>, Pin<PA07, Output<PushPull>>),
+        columns: (
+            Pin<PA08, Input<PullDown>>,
+            Pin<PA02, Input<PullDown>>,
+            Pin<PA09, Input<PullDown>>,
+        ),
+    }
 
-    // Enable USB
+    pub struct LED {
+        enabled: bool,
+        colour: usize,
+        brightness: u8,
+    }
 
-    let dm = pins.pa24;
-    let dp = pins.pa25;
-    let usb_clock = clocks.usb(&gclk0).unwrap();
+    #[shared]
+    struct Shared {
+        serial: SerialPort<'static, UsbBus>,
+        red_led: Pin<PA10, Output<PushPull>>,
+    }
 
-    let usb_bus = UsbBus::new(&usb_clock, &mut peri.PM, dm, dp, peri.USB);
-    let usb_allocator = UsbBusAllocator::new(usb_bus);
+    #[local]
+    struct Local {
+        usb_device: UsbDevice<'static, UsbBus>,
+        dotstar: DotStar,
+        matrix: PinMatrix,
+        inputs: Inputs,
+        led: LED,
+        colour: RGB8,
+    }
 
-    let mut serial = SerialPort::new(&usb_allocator);
+    #[init(local = [usb_allocator: Option<UsbBusAllocator<UsbBus>> = None])]
+    fn init(ctx: init::Context) -> (Shared, Local, init::Monotonics) {
+        let mut peri = ctx.device;
+        let pins = Pins::new(peri.PORT);
 
-    let mut usb_dev = UsbDeviceBuilder::new(&usb_allocator, UsbVidPid(0x16c0, 0x27dd))
-        .manufacturer("Niche")
-        .product("Serial port")
-        .serial_number("0000")
-        .device_class(USB_CLASS_CDC)
-        .build();
+        // Input matrix
 
-    // Input
+        let matrix = PinMatrix {
+            rows: (
+                pins.pa06.into_push_pull_output(),
+                pins.pa07.into_push_pull_output(),
+            ),
+            columns: (
+                pins.pa08.into_pull_down_input(),
+                pins.pa02.into_pull_down_input(),
+                pins.pa09.into_pull_down_input(),
+            ),
+        };
 
-    let mut toggle_out: Option<bool>;
-    let mut toggle_state = false;
+        // DotStar LED control over SPI on SERCOM1
 
-    let mut btn_a_out: bool;
-    let mut btn_a_state = false;
+        // Set up the SERCOM1 pad on the DotStar LED pins (CI - PA01 and DI - PA00)
+        let pads = spi::Pads::<Sercom1>::default()
+            .data_out(pins.pa00)
+            .sclk(pins.pa01);
 
-    let mut btn_b_out: bool;
-    let mut btn_b_state = false;
+        // Configure clocks
 
-    let mut enc_out: EncoderOut;
-    let mut enc_state = Enc::NEUTRAL;
+        let mut clocks = GenericClockController::with_internal_32kosc(
+            peri.GCLK,
+            &mut peri.PM,
+            &mut peri.SYSCTRL,
+            &mut peri.NVMCTRL,
+        );
+        let gclk0 = clocks.gclk0(); // OSC48Mhz
+        let gclk1 = clocks.gclk1(); // OSC32K
 
-    // Program state
+        let rtc_clock = clocks.rtc(&gclk1).unwrap();
+        let spi_clock = clocks.sercom1_core(&gclk0).unwrap();
+        let usb_clock = clocks.usb(&gclk0).unwrap();
 
-    #[rustfmt::skip]
-    let colours: [RGB8; 7] = [
-        RGB8 {r: 148, g: 0, b: 211},
-        RGB8 {r: 75, g: 0, b: 130},
-        RGB8 {r: 0, g: 0, b: 255},
-        RGB8 {r: 0, g: 255, b: 0},
-        RGB8 {r: 255, g: 255, b: 0},
-        RGB8 {r: 255, g: 127, b: 0},
-        RGB8 {r: 255, g: 0, b: 0},
-    ];
+        // Set up the real-time clock, using the 32K oscillator clock
+        // TODO this can be clocked by a subdivided clock for lower power consumption (probably)
+        let rtc = Rtc::count32_mode(peri.RTC, rtc_clock.freq(), &mut peri.PM);
 
-    let mut led_on = true;
-    let mut led_colour: usize = 5;
-    let mut led_brightness: u8 = 31;
-    let mut colour = adjust_brightess(&colours[0], led_brightness);
+        // Create the SPI interface and wrap it in Apa102 LED driver
 
-    let mut out_buffer = [0u8; 64];
+        let spi = spi::Config::new(&peri.PM, peri.SERCOM1, pads, spi_clock)
+            .spi_mode(apa102_spi::MODE)
+            .baud(24.mhz())
+            .enable();
+        let mut dotstar = Apa102::new(spi);
 
-    loop {
-        // Read inputs
+        // Enable USB
+
+        let usb_bus = UsbBus::new(&usb_clock, &mut peri.PM, pins.pa24, pins.pa25, peri.USB);
+        let alloc = UsbBusAllocator::new(usb_bus);
+
+        // Make usb_allocator 'static
+        let usb_allocator = ctx.local.usb_allocator.insert(alloc);
+        let serial = SerialPort::new(usb_allocator);
+
+        let usb_device = UsbDeviceBuilder::new(usb_allocator, UsbVidPid(0x16c0, 0x27dd))
+            .manufacturer("Niche")
+            .product("Serial port")
+            .serial_number("0000")
+            .device_class(USB_CLASS_CDC)
+            .build();
+
+        // Input
+
+        let inputs = Inputs {
+            toggle: Debounced::new(false, 10),
+            button_a: Debounced::new(false, 5),
+            button_b: Debounced::new(false, 5),
+            encoder: Rotary::new(),
+        };
+
+        // Program state
+
+        let led = LED {
+            enabled: true,
+            colour: 5,
+            brightness: 31,
+        };
+
+        let d13 = pins.pa10.into_push_pull_output();
+
+        let colour = adjust_brightess(&COLOURS[5], 31);
+        dotstar.write([colour].iter().cloned()).ok();
+
+        let shared = Shared {
+            serial,
+            red_led: d13,
+        };
+
+        let local = Local {
+            usb_device,
+            dotstar,
+            matrix,
+            inputs,
+            led,
+            colour,
+        };
+
+        tick::spawn().unwrap();
+
+        (shared, local, init::Monotonics(rtc))
+    }
+
+    #[task(shared = [serial, red_led], local = [matrix, inputs, led, dotstar, colour])]
+    fn tick(ctx: tick::Context) {
+        let PinMatrix { rows, columns } = ctx.local.matrix;
+        let inputs = ctx.local.inputs;
+        let mut led = ctx.local.led;
+        let dotstar = ctx.local.dotstar;
+        let colour = ctx.local.colour;
+
+        let mut serial = ctx.shared.serial;
 
         rows.0.set_high().unwrap();
 
-        (enc_state, enc_out) = read_encoder(
-            cols.1.is_high().unwrap(),
-            cols.2.is_high().unwrap(),
-            enc_state,
-        );
+        let (a, b) = (columns.1.is_high().unwrap(), columns.2.is_high().unwrap());
+
+        let enc_out = inputs.encoder.update(a, b);
 
         rows.0.set_low().unwrap();
-
         rows.1.set_high().unwrap();
 
-        (btn_a_state, btn_a_out) = read_button(cols.0.is_high().unwrap(), btn_a_state);
-        (btn_b_state, btn_b_out) = read_button(cols.1.is_high().unwrap(), btn_b_state);
-        (toggle_state, toggle_out) = read_toggle(cols.2.is_low().unwrap(), toggle_state);
+        let btn_a_out = inputs.button_a.update(columns.0.is_high().unwrap());
+        let btn_b_out = inputs.button_b.update(columns.1.is_high().unwrap());
+        let toggle_out = inputs.toggle.update(columns.2.is_low().unwrap());
 
         rows.1.set_low().unwrap();
 
@@ -141,56 +222,79 @@ fn main() -> ! {
 
         match toggle_out {
             Some(true) => {
-                led_on = true;
-                serial.write("ON\n\r".as_bytes()).unwrap();
+                led.enabled = true;
+                serial.lock(|serial| serial.write("ON\n\r".as_bytes()).ok());
             }
             Some(false) => {
-                led_on = false;
-                serial.write("OFF\n\r".as_bytes()).unwrap();
+                led.enabled = false;
+                serial.lock(|serial| serial.write("OFF\n\r".as_bytes()).ok());
             }
             _ => (),
         }
 
         match enc_out {
-            EncoderOut::CW if led_brightness < 247 => {
-                led_brightness += 8;
-                serial.write("UP\n\r".as_bytes()).unwrap();
+            EncoderOut::CW if led.brightness < 247 => {
+                led.brightness += 8;
+                serial.lock(|serial| serial.write("UP\n\r".as_bytes()).ok());
             }
-            EncoderOut::CCW if led_brightness > 8 => {
-                led_brightness -= 8;
-                serial.write("DOWN\n\r".as_bytes()).unwrap();
+            EncoderOut::CCW if led.brightness > 8 => {
+                led.brightness -= 8;
+                serial.lock(|serial| serial.write("DOWN\n\r".as_bytes()).ok());
             }
             _ => (),
         }
 
-        if btn_a_out && led_colour < 6 {
-            led_colour = led_colour + 1;
-            serial.write("A\n\r".as_bytes()).unwrap();
+        if let Some(btn_a_out) = btn_a_out {
+            if btn_a_out && led.colour < 6 {
+                led.colour = led.colour + 1;
+                serial.lock(|serial| serial.write("A\n\r".as_bytes()).ok());
+            }
         }
 
-        if btn_b_out && led_colour > 0 {
-            led_colour = led_colour - 1;
-            serial.write("B\n\r".as_bytes()).unwrap();
+        if let Some(btn_b_out) = btn_b_out {
+            if btn_b_out && led.colour > 0 {
+                led.colour = led.colour - 1;
+                serial.lock(|serial| serial.write("B\n\r".as_bytes()).ok());
+            }
         }
 
         // Update LED
 
-        let c = if led_on {
-            adjust_brightess(&colours[led_colour], led_brightness)
+        let c = if led.enabled {
+            adjust_brightess(&COLOURS[led.colour], led.brightness)
         } else {
             RGB8 { r: 0, g: 0, b: 0 }
         };
 
-        if colour != c {
-            dostar.write([c].iter().cloned()).unwrap();
-            colour = c;
+        if *colour != c {
+            dotstar.write([c].iter().cloned()).ok();
+            *colour = c;
         }
 
-        // USB
+        tick::spawn_after(Duration::millis(1)).unwrap();
+    }
 
-        usb_dev.poll(&mut [&mut serial]);
+    #[task(binds = USB, priority = 2, local = [usb_device], shared = [serial, red_led])]
+    fn usb_poll(ctx: usb_poll::Context) {
+        let usb_device = ctx.local.usb_device;
+        let mut serial = ctx.shared.serial;
+        let mut red_led = ctx.shared.red_led;
+
+        red_led.lock(|red_led| red_led.toggle().unwrap());
+        serial.lock(|serial| usb_device.poll(&mut [serial]));
     }
 }
+
+#[rustfmt::skip]
+const COLOURS: [RGB8; 7] = [
+    RGB8 { r: 148, g: 0, b: 211 },
+    RGB8 { r: 75, g: 0, b: 130 },
+    RGB8 { r: 0, g: 0, b: 255 },
+    RGB8 { r: 0, g: 255, b: 0 },
+    RGB8 { r: 255, g: 255, b: 0 },
+    RGB8 { r: 255, g: 127, b: 0 },
+    RGB8 { r: 255, g: 0, b: 0 },
+];
 
 fn adjust_brightess(colour: &RGB8, brightness: u8) -> RGB8 {
     RGB8 {
@@ -202,18 +306,51 @@ fn adjust_brightess(colour: &RGB8, brightness: u8) -> RGB8 {
 
 // Input
 
-fn read_button(input: bool, state: bool) -> (bool, bool) {
-    match (state, input) {
-        (true, false) => (input, true),
-        _ => (input, false),
+struct Debounced<T> {
+    state: T,
+    candidate: T,
+    stable_for: usize,
+    stable_minimum: usize,
+}
+
+impl<T: Clone> Debounced<T> {
+    fn new(init: T, n: usize) -> Self {
+        Self {
+            state: init.clone(),
+            candidate: init,
+            stable_for: 0,
+            stable_minimum: n,
+        }
+    }
+
+    fn get(&self) -> T {
+        self.state.clone()
     }
 }
 
-fn read_toggle(input: bool, state: bool) -> (bool, Option<bool>) {
-    match (state, input) {
-        (false, true) => (input, Some(true)),
-        (true, false) => (input, Some(false)),
-        _ => (input, None),
+impl<T: PartialEq + Clone> Debounced<T> {
+    fn update(&mut self, input: T) -> Option<T> {
+        if self.state == input {
+            self.stable_for = 0;
+            return None;
+        }
+
+        if self.candidate != input {
+            self.candidate = input;
+
+            self.stable_for = 1;
+        } else {
+            self.stable_for += 1;
+        }
+
+        if self.stable_for <= self.stable_minimum {
+            return None;
+        }
+
+        self.state = self.candidate.clone();
+        self.stable_for = 0;
+
+        Some(self.candidate.clone())
     }
 }
 
@@ -239,23 +376,39 @@ enum EncoderOut {
     CCW,
 }
 
-fn read_encoder(a: bool, b: bool, state: Enc) -> (Enc, EncoderOut) {
-    let mux = ((a as u8) << 1) | (b as u8);
-    let input = Enc(((state.0 as u8) << 2 | mux) & 0xF);
+struct Rotary {
+    state: Enc,
+}
 
-    match (state, input) {
-        (Enc::NEUTRAL, Enc::CW_A) => (Enc::CW_A, EncoderOut::None),
-        (Enc::NEUTRAL, Enc::CCW_A) => (Enc::CCW_A, EncoderOut::None),
+impl Rotary {
+    fn new() -> Self {
+        Self {
+            state: Enc::NEUTRAL,
+        }
+    }
 
-        (Enc::CW_A, Enc::CW_B) => (Enc::CW_B, EncoderOut::None),
-        (Enc::CW_B, Enc::CW_C) => (Enc::CW_C, EncoderOut::None),
-        (Enc::CW_C, Enc::CW_D) => (Enc::NEUTRAL, EncoderOut::CW),
+    fn update(&mut self, a: bool, b: bool) -> EncoderOut {
+        let mux = ((a as u8) << 1) | (b as u8);
+        let input = Enc(((self.state.0 as u8) << 2 | mux) & 0xF);
 
-        (Enc::CCW_A, Enc::CCW_B) => (Enc::CCW_B, EncoderOut::None),
-        (Enc::CCW_B, Enc::CCW_C) => (Enc::CCW_C, EncoderOut::None),
-        (Enc::CCW_C, Enc::CCW_D) => (Enc::NEUTRAL, EncoderOut::CCW),
+        let (state, output) = match (self.state, input) {
+            (Enc::NEUTRAL, Enc::CW_A) => (Enc::CW_A, EncoderOut::None),
+            (Enc::NEUTRAL, Enc::CCW_A) => (Enc::CCW_A, EncoderOut::None),
 
-        (_, Enc::NEUTRAL) => (Enc::NEUTRAL, EncoderOut::None),
-        (s, _) => (s, EncoderOut::None),
+            (Enc::CW_A, Enc::CW_B) => (Enc::CW_B, EncoderOut::None),
+            (Enc::CW_B, Enc::CW_C) => (Enc::CW_C, EncoderOut::None),
+            (Enc::CW_C, Enc::CW_D) => (Enc::NEUTRAL, EncoderOut::CW),
+
+            (Enc::CCW_A, Enc::CCW_B) => (Enc::CCW_B, EncoderOut::None),
+            (Enc::CCW_B, Enc::CCW_C) => (Enc::CCW_C, EncoderOut::None),
+            (Enc::CCW_C, Enc::CCW_D) => (Enc::NEUTRAL, EncoderOut::CCW),
+
+            (_, Enc::NEUTRAL) => (Enc::NEUTRAL, EncoderOut::None),
+            (s, _) => (s, EncoderOut::None),
+        };
+
+        self.state = state;
+
+        output
     }
 }

@@ -11,10 +11,13 @@ bench = false
 
 [dependencies]
 panic-halt = "0.2.0"
-atsamd-hal = { version = "0.14.0", features = ["samd21e", "samd21", "usb", "unproven"] }
-cortex-m-rt = "0.7"
+cortex-m-rtic = { version = "1.0.0" }
 smart-leds = "0.3"
 smart-leds-trait = "0.2"
 apa102-spi = "0.3"
 usb-device = "0.2"
 usbd-serial = "0.1"
+
+[dependencies.atsamd-hal]
+git = "https://github.com/atsamd-rs/atsamd"
+features = ["rtic", "samd21e-rt", "samd21", "usb", "unproven"] 
