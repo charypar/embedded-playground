@@ -2,6 +2,9 @@
 #![no_main]
 #![no_std]
 
+mod debounce;
+mod rotary;
+
 use panic_halt as _;
 
 use rtic::app;
@@ -15,10 +18,8 @@ mod app {
     use hal::typelevel::NoneT;
 
     use hal::clock::GenericClockController;
-    use hal::gpio::v2::{
-        Alternate, Input, Output, Pin, Pins, PullDown, PushPull, D, PA00, PA01, PA02, PA06, PA07,
-        PA08, PA09, PA10,
-    };
+    use hal::gpio::v2::{Alternate, Input, Output, Pin, Pins, PullDown, PushPull, D};
+    use hal::gpio::v2::{PA00, PA01, PA02, PA06, PA07, PA08, PA09, PA10};
     use hal::rtc::{Count32Mode, Duration, Rtc};
     use hal::sercom::v2::{spi, Sercom1};
     use hal::usb::UsbBus;
@@ -30,8 +31,9 @@ mod app {
     use usb_device::device::{UsbDevice, UsbDeviceBuilder, UsbVidPid};
     use usbd_serial::{SerialPort, USB_CLASS_CDC};
 
+    use super::debounce::Debounced;
+    use super::rotary::{self, Rotary};
     use super::{adjust_brightess, COLOURS};
-    use super::{Debounced, EncoderOut, Rotary};
 
     #[monotonic(binds = RTC, default = true)]
     type RtcMonotonic = Rtc<Count32Mode>;
@@ -104,11 +106,6 @@ mod app {
 
         // DotStar LED control over SPI on SERCOM1
 
-        // Set up the SERCOM1 pad on the DotStar LED pins (CI - PA01 and DI - PA00)
-        let pads = spi::Pads::<Sercom1>::default()
-            .data_out(pins.pa00)
-            .sclk(pins.pa01);
-
         // Configure clocks
 
         let mut clocks = GenericClockController::with_internal_32kosc(
@@ -130,7 +127,11 @@ mod app {
 
         // Create the SPI interface and wrap it in Apa102 LED driver
 
-        let spi = spi::Config::new(&peri.PM, peri.SERCOM1, pads, spi_clock)
+        let spi_pads = spi::Pads::<Sercom1>::default()
+            .data_out(pins.pa00)
+            .sclk(pins.pa01);
+
+        let spi = spi::Config::new(&peri.PM, peri.SERCOM1, spi_pads, spi_clock)
             .spi_mode(apa102_spi::MODE)
             .baud(24.mhz())
             .enable();
@@ -155,9 +156,9 @@ mod app {
         // Input
 
         let inputs = Inputs {
-            toggle: Debounced::new(false, 10),
-            button_a: Debounced::new(false, 5),
-            button_b: Debounced::new(false, 5),
+            toggle: Debounced::new(false, 20),
+            button_a: Debounced::new(false, 10),
+            button_b: Debounced::new(false, 10),
             encoder: Rotary::new(),
         };
 
@@ -188,6 +189,8 @@ mod app {
             colour,
         };
 
+        // TODO see if we can do this on a periodic timer instead,
+        // so the task execution isn't fallible
         tick::spawn().unwrap();
 
         (shared, local, init::Monotonics(rtc))
@@ -220,42 +223,58 @@ mod app {
 
         // Update state
 
+        led.enabled = inputs.toggle.get();
+
         match toggle_out {
             Some(true) => {
-                led.enabled = true;
                 serial.lock(|serial| serial.write("ON\n\r".as_bytes()).ok());
             }
             Some(false) => {
-                led.enabled = false;
                 serial.lock(|serial| serial.write("OFF\n\r".as_bytes()).ok());
             }
             _ => (),
         }
 
         match enc_out {
-            EncoderOut::CW if led.brightness < 247 => {
-                led.brightness += 8;
+            rotary::Out::CW => {
+                if led.brightness < 247 {
+                    led.brightness += 8;
+                }
                 serial.lock(|serial| serial.write("UP\n\r".as_bytes()).ok());
             }
-            EncoderOut::CCW if led.brightness > 8 => {
-                led.brightness -= 8;
+            rotary::Out::CCW => {
+                if led.brightness > 8 {
+                    led.brightness -= 8;
+                }
                 serial.lock(|serial| serial.write("DOWN\n\r".as_bytes()).ok());
             }
             _ => (),
         }
 
-        if let Some(btn_a_out) = btn_a_out {
-            if btn_a_out && led.colour < 6 {
-                led.colour = led.colour + 1;
+        match btn_a_out {
+            Some(true) => {
+                if led.colour < 6 {
+                    led.colour = led.colour + 1;
+                }
                 serial.lock(|serial| serial.write("A\n\r".as_bytes()).ok());
             }
+            Some(false) => {
+                serial.lock(|serial| serial.write("!A\n\r".as_bytes()).ok());
+            }
+            _ => (),
         }
 
-        if let Some(btn_b_out) = btn_b_out {
-            if btn_b_out && led.colour > 0 {
-                led.colour = led.colour - 1;
+        match btn_b_out {
+            Some(true) => {
+                if led.colour > 0 {
+                    led.colour = led.colour - 1;
+                }
                 serial.lock(|serial| serial.write("B\n\r".as_bytes()).ok());
             }
+            Some(false) => {
+                serial.lock(|serial| serial.write("!B\n\r".as_bytes()).ok());
+            }
+            _ => (),
         }
 
         // Update LED
@@ -271,6 +290,8 @@ mod app {
             *colour = c;
         }
 
+        // TODO see if we can do this on a periodic timer instead,
+        // so the task execution isn't fallible
         tick::spawn_after(Duration::millis(1)).unwrap();
     }
 
@@ -280,7 +301,7 @@ mod app {
         let mut serial = ctx.shared.serial;
         let mut red_led = ctx.shared.red_led;
 
-        red_led.lock(|red_led| red_led.toggle().unwrap());
+        red_led.lock(|red_led| red_led.toggle().ok());
         serial.lock(|serial| usb_device.poll(&mut [serial]));
     }
 }
@@ -305,110 +326,3 @@ fn adjust_brightess(colour: &RGB8, brightness: u8) -> RGB8 {
 }
 
 // Input
-
-struct Debounced<T> {
-    state: T,
-    candidate: T,
-    stable_for: usize,
-    stable_minimum: usize,
-}
-
-impl<T: Clone> Debounced<T> {
-    fn new(init: T, n: usize) -> Self {
-        Self {
-            state: init.clone(),
-            candidate: init,
-            stable_for: 0,
-            stable_minimum: n,
-        }
-    }
-
-    fn get(&self) -> T {
-        self.state.clone()
-    }
-}
-
-impl<T: PartialEq + Clone> Debounced<T> {
-    fn update(&mut self, input: T) -> Option<T> {
-        if self.state == input {
-            self.stable_for = 0;
-            return None;
-        }
-
-        if self.candidate != input {
-            self.candidate = input;
-
-            self.stable_for = 1;
-        } else {
-            self.stable_for += 1;
-        }
-
-        if self.stable_for <= self.stable_minimum {
-            return None;
-        }
-
-        self.state = self.candidate.clone();
-        self.stable_for = 0;
-
-        Some(self.candidate.clone())
-    }
-}
-
-#[derive(PartialEq, Eq, Clone, Copy)]
-struct Enc(u8);
-
-impl Enc {
-    pub const NEUTRAL: Enc = Enc(0b0000);
-    pub const CW_A: Enc = Enc(0b0010);
-    pub const CW_B: Enc = Enc(0b1011);
-    pub const CW_C: Enc = Enc(0b1101);
-    pub const CW_D: Enc = Enc(0b0100);
-    pub const CCW_A: Enc = Enc(0b0001);
-    pub const CCW_B: Enc = Enc(0b0111);
-    pub const CCW_C: Enc = Enc(0b1110);
-    pub const CCW_D: Enc = Enc(0b1000);
-}
-
-#[derive(Clone, Copy)]
-enum EncoderOut {
-    None,
-    CW,
-    CCW,
-}
-
-struct Rotary {
-    state: Enc,
-}
-
-impl Rotary {
-    fn new() -> Self {
-        Self {
-            state: Enc::NEUTRAL,
-        }
-    }
-
-    fn update(&mut self, a: bool, b: bool) -> EncoderOut {
-        let mux = ((a as u8) << 1) | (b as u8);
-        let input = Enc(((self.state.0 as u8) << 2 | mux) & 0xF);
-
-        let (state, output) = match (self.state, input) {
-            (Enc::NEUTRAL, Enc::CW_A) => (Enc::CW_A, EncoderOut::None),
-            (Enc::NEUTRAL, Enc::CCW_A) => (Enc::CCW_A, EncoderOut::None),
-
-            (Enc::CW_A, Enc::CW_B) => (Enc::CW_B, EncoderOut::None),
-            (Enc::CW_B, Enc::CW_C) => (Enc::CW_C, EncoderOut::None),
-            (Enc::CW_C, Enc::CW_D) => (Enc::NEUTRAL, EncoderOut::CW),
-
-            (Enc::CCW_A, Enc::CCW_B) => (Enc::CCW_B, EncoderOut::None),
-            (Enc::CCW_B, Enc::CCW_C) => (Enc::CCW_C, EncoderOut::None),
-            (Enc::CCW_C, Enc::CCW_D) => (Enc::NEUTRAL, EncoderOut::CCW),
-
-            (_, Enc::NEUTRAL) => (Enc::NEUTRAL, EncoderOut::None),
-            (s, _) => (s, EncoderOut::None),
-        };
-
-        self.state = state;
-
-        output
-    }
-}
