@@ -29,7 +29,10 @@ mod app {
     use smart_leds_trait::RGB8;
     use usb_device::class_prelude::UsbBusAllocator;
     use usb_device::device::{UsbDevice, UsbDeviceBuilder, UsbVidPid};
-    use usbd_serial::{SerialPort, USB_CLASS_CDC};
+    use usb_device::UsbError;
+    use usbd_hid::descriptor::{KeyboardReport, SerializedDescriptor};
+    use usbd_hid::hid_class::HIDClass;
+    use usbd_serial::SerialPort;
 
     use super::debounce::Debounced;
     use super::rotary::{self, Rotary};
@@ -71,7 +74,8 @@ mod app {
 
     #[shared]
     struct Shared {
-        serial: SerialPort<'static, UsbBus>,
+        // serial: SerialPort<'static, UsbBus>,
+        hid_device: HIDClass<'static, UsbBus>,
         red_led: Pin<PA10, Output<PushPull>>,
     }
 
@@ -144,13 +148,13 @@ mod app {
 
         // Make usb_allocator 'static
         let usb_allocator = ctx.local.usb_allocator.insert(alloc);
-        let serial = SerialPort::new(usb_allocator);
+        // let serial = SerialPort::new(usb_allocator);
+        let hid_device = HIDClass::new_ep_in(usb_allocator, KeyboardReport::desc(), 100);
 
-        let usb_device = UsbDeviceBuilder::new(usb_allocator, UsbVidPid(0x16c0, 0x27dd))
-            .manufacturer("Niche")
-            .product("Serial port")
+        let usb_device = UsbDeviceBuilder::new(usb_allocator, UsbVidPid(0x16c0, 0x27db))
+            .manufacturer("Niche http://niche.london")
+            .product("Blinky development board")
             .serial_number("0000")
-            .device_class(USB_CLASS_CDC)
             .build();
 
         // Input
@@ -176,7 +180,8 @@ mod app {
         dotstar.write([colour].iter().cloned()).ok();
 
         let shared = Shared {
-            serial,
+            // serial,
+            hid_device,
             red_led: d13,
         };
 
@@ -196,7 +201,7 @@ mod app {
         (shared, local, init::Monotonics(rtc))
     }
 
-    #[task(shared = [serial, red_led], local = [matrix, inputs, led, dotstar, colour])]
+    #[task(shared = [hid_device, red_led], local = [matrix, inputs, led, dotstar, colour])]
     fn tick(ctx: tick::Context) {
         let PinMatrix { rows, columns } = ctx.local.matrix;
         let inputs = ctx.local.inputs;
@@ -204,7 +209,9 @@ mod app {
         let dotstar = ctx.local.dotstar;
         let colour = ctx.local.colour;
 
-        let mut serial = ctx.shared.serial;
+        // let mut serial = ctx.shared.serial;
+        let mut hid_device = ctx.shared.hid_device;
+        let mut red_led = ctx.shared.red_led;
 
         rows.0.set_high().unwrap();
 
@@ -225,28 +232,28 @@ mod app {
 
         led.enabled = inputs.toggle.get();
 
-        match toggle_out {
-            Some(true) => {
-                serial.lock(|serial| serial.write("ON\n\r".as_bytes()).ok());
-            }
-            Some(false) => {
-                serial.lock(|serial| serial.write("OFF\n\r".as_bytes()).ok());
-            }
-            _ => (),
-        }
+        // match toggle_out {
+        //     Some(true) => {
+        //         serial.lock(|serial| serial.write("ON\n\r".as_bytes()).ok());
+        //     }
+        //     Some(false) => {
+        //         serial.lock(|serial| serial.write("OFF\n\r".as_bytes()).ok());
+        //     }
+        //     _ => (),
+        // }
 
         match enc_out {
             rotary::Out::CW => {
                 if led.brightness < 247 {
                     led.brightness += 8;
                 }
-                serial.lock(|serial| serial.write("UP\n\r".as_bytes()).ok());
+                // serial.lock(|serial| serial.write("UP\n\r".as_bytes()).ok());
             }
             rotary::Out::CCW => {
                 if led.brightness > 8 {
                     led.brightness -= 8;
                 }
-                serial.lock(|serial| serial.write("DOWN\n\r".as_bytes()).ok());
+                // serial.lock(|serial| serial.write("DOWN\n\r".as_bytes()).ok());
             }
             _ => (),
         }
@@ -256,10 +263,10 @@ mod app {
                 if led.colour < 6 {
                     led.colour = led.colour + 1;
                 }
-                serial.lock(|serial| serial.write("A\n\r".as_bytes()).ok());
+                // serial.lock(|serial| serial.write("A\n\r".as_bytes()).ok());
             }
             Some(false) => {
-                serial.lock(|serial| serial.write("!A\n\r".as_bytes()).ok());
+                // serial.lock(|serial| serial.write("!A\n\r".as_bytes()).ok());
             }
             _ => (),
         }
@@ -269,10 +276,10 @@ mod app {
                 if led.colour > 0 {
                     led.colour = led.colour - 1;
                 }
-                serial.lock(|serial| serial.write("B\n\r".as_bytes()).ok());
+                // serial.lock(|serial| serial.write("B\n\r".as_bytes()).ok());
             }
             Some(false) => {
-                serial.lock(|serial| serial.write("!B\n\r".as_bytes()).ok());
+                // serial.lock(|serial| serial.write("!B\n\r".as_bytes()).ok());
             }
             _ => (),
         }
@@ -290,19 +297,58 @@ mod app {
             *colour = c;
         }
 
+        // HID keyboard
+
+        let keycodes = match (inputs.button_a.get(), inputs.button_b.get()) {
+            (true, true) => [04, 05, 0, 0, 0, 0],
+            (true, false) => [04, 0, 0, 0, 0, 0],
+            (false, true) => [05, 0, 0, 0, 0, 0],
+            _ => [0; 6],
+        };
+
+        let modifier = if inputs.toggle.get() { 0b10 } else { 0 };
+
+        let report = KeyboardReport {
+            modifier,
+            reserved: 0,
+            leds: 0,
+            keycodes,
+        };
+
+        match hid_device.lock(|hid| hid.push_input(&report)) {
+            Ok(_) => red_led.lock(|red_led| red_led.set_low().ok()),
+            Err(_) => red_led.lock(|red_led| red_led.set_high().ok()),
+        };
+
         // TODO see if we can do this on a periodic timer instead,
         // so the task execution isn't fallible
         tick::spawn_after(Duration::millis(1)).unwrap();
     }
 
-    #[task(binds = USB, priority = 2, local = [usb_device], shared = [serial, red_led])]
+    #[task(binds = USB, priority = 2, local = [usb_device], shared = [ hid_device, red_led])]
     fn usb_poll(ctx: usb_poll::Context) {
         let usb_device = ctx.local.usb_device;
-        let mut serial = ctx.shared.serial;
-        let mut red_led = ctx.shared.red_led;
+        // let mut serial = ctx.shared.serial;
+        let mut hid_device = ctx.shared.hid_device;
+        // let mut red_led = ctx.shared.red_led;
 
-        red_led.lock(|red_led| red_led.toggle().ok());
-        serial.lock(|serial| usb_device.poll(&mut [serial]));
+        // serial.lock(|serial| usb_device.poll(&mut [serial]));
+        hid_device.lock(|hid| usb_device.poll(&mut [hid]));
+    }
+
+    fn print_error(err: UsbError, s: &mut SerialPort<UsbBus>) -> Result<usize, UsbError> {
+        match err {
+            usb_device::UsbError::WouldBlock => s.write("would block\n\r".as_bytes()),
+            usb_device::UsbError::ParseError => s.write("parse error\n\r".as_bytes()),
+            usb_device::UsbError::BufferOverflow => s.write("buffer ovrfl\n\r".as_bytes()),
+            usb_device::UsbError::EndpointOverflow => s.write("endp ovrfl\n\r".as_bytes()),
+            usb_device::UsbError::EndpointMemoryOverflow => {
+                s.write("endp mem ovrfl\n\r".as_bytes())
+            }
+            usb_device::UsbError::InvalidEndpoint => s.write("inv endp\n\r".as_bytes()),
+            usb_device::UsbError::Unsupported => s.write("unsupp\n\r".as_bytes()),
+            usb_device::UsbError::InvalidState => s.write("inv state\n\r".as_bytes()),
+        }
     }
 }
 

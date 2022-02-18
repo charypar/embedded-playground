@@ -17,6 +17,7 @@ smart-leds-trait = "0.2"
 apa102-spi = "0.3"
 usb-device = "0.2"
 usbd-serial = "0.1"
+usbd-hid = "0.5"
 
 [dependencies.atsamd-hal]
 git = "https://github.com/atsamd-rs/atsamd"
