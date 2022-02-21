@@ -28,7 +28,7 @@ mod app {
     use usb_device::device::{UsbDevice, UsbDeviceBuilder, UsbVidPid};
     use usbd_hid::descriptor::{KeyboardReport, SerializedDescriptor};
     use usbd_hid::hid_class::HIDClass;
-    // use usbd_serial::SerialPort;
+    use usbd_serial::SerialPort;
 
     use super::debounce::Debounced;
     use super::dotstar::DotStar;
@@ -59,7 +59,7 @@ mod app {
 
     #[shared]
     struct Shared {
-        // serial: SerialPort<'static, UsbBus>,
+        serial_port: SerialPort<'static, UsbBus>,
         hid_device: HIDClass<'static, UsbBus>,
     }
 
@@ -111,8 +111,7 @@ mod app {
 
         // End Hardware initialisation
 
-        // let serial = SerialPort::new(usb_allocator);
-        let (usb_device, hid_device) = init_usb(usb_allocator);
+        let (usb_device, serial_port, hid_device) = init_usb(usb_allocator);
 
         // Input matrix
 
@@ -143,7 +142,7 @@ mod app {
         // Program state
 
         let shared = Shared {
-            // serial,
+            serial_port,
             hid_device,
         };
 
@@ -161,12 +160,12 @@ mod app {
         (shared, local, init::Monotonics(rtc))
     }
 
-    #[task(shared = [hid_device], local = [matrix, inputs, dotstar])]
+    #[task(shared = [serial_port, hid_device], local = [matrix, inputs, dotstar])]
     fn tick(ctx: tick::Context) {
         let PinMatrix { rows, columns } = ctx.local.matrix;
         let inputs = ctx.local.inputs;
 
-        // let mut serial = ctx.shared.serial;
+        let mut serial_port = ctx.shared.serial_port;
 
         rows.0.set_high().unwrap();
 
@@ -194,12 +193,12 @@ mod app {
             rotary::Out::CW => {
                 dotstar.set_brightness(dotstar.brightness() + 8);
                 inputs.encoder_up.update(true);
-                // serial.lock(|serial| serial.write("UP\n\r".as_bytes()).ok());
+                serial_port.lock(|serial| serial.write("UP\n\r".as_bytes()).ok());
             }
             rotary::Out::CCW => {
                 dotstar.set_brightness(dotstar.brightness() - 8);
                 inputs.encoder_down.update(true);
-                // serial.lock(|serial| serial.write("DOWN\n\r".as_bytes()).ok());
+                serial_port.lock(|serial| serial.write("DOWN\n\r".as_bytes()).ok());
             }
             _ => {
                 inputs.encoder_up.update(false);
@@ -210,10 +209,10 @@ mod app {
         match btn_a_out {
             Some(true) => {
                 dotstar.set_color(dotstar.color() + 1);
-                // serial.lock(|serial| serial.write("A\n\r".as_bytes()).ok());
+                serial_port.lock(|serial| serial.write("A\n\r".as_bytes()).ok());
             }
             Some(false) => {
-                // serial.lock(|serial| serial.write("!A\n\r".as_bytes()).ok());
+                serial_port.lock(|serial| serial.write("!A\n\r".as_bytes()).ok());
             }
             _ => (),
         }
@@ -221,10 +220,10 @@ mod app {
         match btn_b_out {
             Some(true) => {
                 dotstar.set_color(dotstar.color() - 1);
-                // serial.lock(|serial| serial.write("B\n\r".as_bytes()).ok());
+                serial_port.lock(|serial| serial.write("B\n\r".as_bytes()).ok());
             }
             Some(false) => {
-                // serial.lock(|serial| serial.write("!B\n\r".as_bytes()).ok());
+                serial_port.lock(|serial| serial.write("!B\n\r".as_bytes()).ok());
             }
             _ => (),
         }
@@ -273,26 +272,32 @@ mod app {
         tick::spawn_after(Duration::millis(1)).unwrap();
     }
 
-    #[task(binds = USB, priority = 2, local = [usb_device], shared = [hid_device])]
+    #[task(binds = USB, priority = 2, local = [usb_device], shared = [serial_port, hid_device])]
     fn usb_poll(ctx: usb_poll::Context) {
         let usb_device = ctx.local.usb_device;
-        // let mut serial = ctx.shared.serial;
-        let mut hid_device = ctx.shared.hid_device;
+        let serial_port = ctx.shared.serial_port;
+        let hid_device = ctx.shared.hid_device;
 
-        // serial.lock(|serial| usb_device.poll(&mut [serial]));
-        hid_device.lock(|hid| usb_device.poll(&mut [hid]));
+        (serial_port, hid_device).lock(|serial, hid| usb_device.poll(&mut [serial, hid]));
     }
 
     fn init_usb<'a>(
         allocator: &'a UsbBusAllocator<UsbBus>,
-    ) -> (UsbDevice<'a, UsbBus>, HIDClass<'a, UsbBus>) {
+    ) -> (
+        UsbDevice<'a, UsbBus>,
+        SerialPort<'a, UsbBus>,
+        HIDClass<'a, UsbBus>,
+    ) {
+        let serial = SerialPort::new(allocator);
         let hid_device = HIDClass::new_ep_in(allocator, KeyboardReport::desc(), 5);
+
         let usb_device = UsbDeviceBuilder::new(allocator, UsbVidPid(0x16c0, 0x27db))
             .manufacturer("Niche http://niche.london")
             .product("Blinky development board")
             .serial_number("0000")
+            .composite_with_iads()
             .build();
 
-        (usb_device, hid_device)
+        (usb_device, serial, hid_device)
     }
 }
