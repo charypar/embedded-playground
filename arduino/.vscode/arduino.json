@@ -1,6 +1,0 @@
-{
-    "board": "arduino:avr:leonardo",
-    "programmer": "arduino:avrispmkii",
-    "port": "/dev/cu.usbmodem14101",
-    "sketch": "playground.ino"
-}
