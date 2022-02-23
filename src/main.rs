@@ -278,7 +278,14 @@ mod app {
         let serial_port = ctx.shared.serial_port;
         let hid_device = ctx.shared.hid_device;
 
-        (serial_port, hid_device).lock(|serial, hid| usb_device.poll(&mut [serial, hid]));
+        (serial_port, hid_device).lock(|serial, hid| {
+            usb_device.poll(&mut [serial, hid]);
+
+            // Prevent writes into the serial port locking everthing up
+            // I am honestly not sure why this happens.
+            let mut buf = [0u8; 64];
+            serial.read(&mut buf).ok();
+        });
     }
 
     fn init_usb<'a>(
