@@ -3,6 +3,7 @@
 #![no_std]
 
 mod debounce;
+mod descriptor;
 mod dotstar;
 mod hold;
 mod rotary;
@@ -26,11 +27,12 @@ mod app {
 
     use usb_device::class_prelude::UsbBusAllocator;
     use usb_device::device::{UsbDevice, UsbDeviceBuilder, UsbVidPid};
-    use usbd_hid::descriptor::{KeyboardReport, SerializedDescriptor};
+    use usbd_hid::descriptor::SerializedDescriptor;
     use usbd_hid::hid_class::HIDClass;
     use usbd_serial::SerialPort;
 
     use super::debounce::Debounced;
+    use super::descriptor::JoystickReport;
     use super::dotstar::DotStar;
     use super::hold::Held;
     use super::rotary::{self, Rotary};
@@ -131,7 +133,7 @@ mod app {
 
         let inputs = Inputs {
             encoder: Rotary::new(),
-            toggle: Debounced::new(false, 20),
+            toggle: Debounced::new(true, 20),
             button_a: Debounced::new(false, 10),
             button_b: Debounced::new(false, 10),
             encoder_button: Debounced::new(false, 5),
@@ -232,36 +234,22 @@ mod app {
 
         dotstar.display();
 
-        // HID keyboard
+        // HID joystick
 
-        let mut keycodes = [0; 6];
-
-        let mapping = [
-            (inputs.button_a.get(), 0x04),
-            (inputs.button_b.get(), 0x05),
-            (inputs.encoder_button.get(), 0x08),
-            (inputs.encoder_up.get(), 0x18),
-            (inputs.encoder_down.get(), 0x07),
+        let buttons = [
+            inputs.button_a.get(),
+            inputs.button_b.get(),
+            inputs.toggle.get(),
+            inputs.encoder_up.get(),
+            inputs.encoder_down.get(),
+            inputs.encoder_button.get(),
         ];
 
-        for (input, code) in mapping {
-            if !input {
-                continue;
-            }
+        let mut report = JoystickReport::new();
 
-            if let Some(idx) = keycodes.iter().position(|&x| x == 0) {
-                keycodes[idx] = code;
-            }
+        for (button, state) in buttons.iter().enumerate() {
+            report.set_button(button, *state);
         }
-
-        let modifier = if inputs.toggle.get() { 0b10 } else { 0 };
-
-        let report = KeyboardReport {
-            modifier,
-            reserved: 0,
-            leds: 0,
-            keycodes,
-        };
 
         let mut hid_device = ctx.shared.hid_device;
 
@@ -296,12 +284,13 @@ mod app {
         HIDClass<'a, UsbBus>,
     ) {
         let serial = SerialPort::new(allocator);
-        let hid_device = HIDClass::new_ep_in(allocator, KeyboardReport::desc(), 5);
+        let hid_device = HIDClass::new_ep_in(allocator, JoystickReport::desc(), 5);
 
-        let usb_device = UsbDeviceBuilder::new(allocator, UsbVidPid(0x16c0, 0x27db))
-            .manufacturer("Niche http://niche.london")
+        // https://github.com/obdev/v-usb/blob/master/usbdrv/USB-IDs-for-free.txt
+        let usb_device = UsbDeviceBuilder::new(allocator, UsbVidPid(0x16c0, 0x27dc))
+            .manufacturer("Niche http://niche.london/")
             .product("Blinky development board")
-            .serial_number("0000")
+            .serial_number("niche.london:Blinky-v0.1")
             .composite_with_iads()
             .build();
 
