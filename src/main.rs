@@ -34,7 +34,6 @@ mod app {
     use super::debounce::Debounced;
     use super::descriptor::JoystickReport;
     use super::dotstar::DotStar;
-    use super::hold::Held;
     use super::rotary::{self, Rotary};
 
     #[monotonic(binds = RTC, default = true)]
@@ -46,8 +45,6 @@ mod app {
         button_a: Debounced<bool>,
         button_b: Debounced<bool>,
         encoder_button: Debounced<bool>,
-        encoder_up: Held<bool>,
-        encoder_down: Held<bool>,
     }
 
     pub struct PinMatrix {
@@ -132,13 +129,11 @@ mod app {
         // Input
 
         let inputs = Inputs {
-            encoder: Rotary::new(),
+            encoder: Rotary::new(20),
             toggle: Debounced::new(true, 20),
             button_a: Debounced::new(false, 10),
             button_b: Debounced::new(false, 10),
-            encoder_button: Debounced::new(false, 5),
-            encoder_up: Held::new(false, 6),
-            encoder_down: Held::new(false, 6),
+            encoder_button: Debounced::new(false, 10),
         };
 
         // Program state
@@ -173,7 +168,6 @@ mod app {
 
         inputs.encoder_button.update(columns.0.is_high().unwrap());
         let (a, b) = (columns.1.is_high().unwrap(), columns.2.is_high().unwrap());
-
         let enc_out = inputs.encoder.update(a, b);
 
         rows.0.set_low().unwrap();
@@ -194,18 +188,13 @@ mod app {
         match enc_out {
             rotary::Out::CW => {
                 dotstar.set_brightness(dotstar.brightness() + 8);
-                inputs.encoder_up.update(true);
                 serial_port.lock(|serial| serial.write("UP\n\r".as_bytes()).ok());
             }
             rotary::Out::CCW => {
                 dotstar.set_brightness(dotstar.brightness() - 8);
-                inputs.encoder_down.update(true);
                 serial_port.lock(|serial| serial.write("DOWN\n\r".as_bytes()).ok());
             }
-            _ => {
-                inputs.encoder_up.update(false);
-                inputs.encoder_down.update(false);
-            }
+            _ => (),
         }
 
         match btn_a_out {
@@ -240,8 +229,8 @@ mod app {
             inputs.button_a.get(),
             inputs.button_b.get(),
             inputs.toggle.get(),
-            inputs.encoder_up.get(),
-            inputs.encoder_down.get(),
+            inputs.encoder.get_cw(),
+            inputs.encoder.get_ccw(),
             inputs.encoder_button.get(),
         ];
 
@@ -284,7 +273,7 @@ mod app {
         HIDClass<'a, UsbBus>,
     ) {
         let serial = SerialPort::new(allocator);
-        let hid_device = HIDClass::new_ep_in(allocator, JoystickReport::desc(), 5);
+        let hid_device = HIDClass::new_ep_in(allocator, JoystickReport::desc(), 10);
 
         // https://github.com/obdev/v-usb/blob/master/usbdrv/USB-IDs-for-free.txt
         let usb_device = UsbDeviceBuilder::new(allocator, UsbVidPid(0x16c0, 0x27dc))
