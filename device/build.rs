@@ -4,8 +4,14 @@ use std::io::Write;
 use std::path::PathBuf;
 
 fn main() {
-    if env::var_os("CARGO_FEATURE_RT").is_some() {
+    if let Some(arch) = env::var_os("CARGO_CFG_TARGET_ARCH") {
+        if arch != "arm" {
+            return;
+        }
+
         let out = &PathBuf::from(env::var_os("OUT_DIR").unwrap());
+
+        println!("Cargo build: {:?}", out);
 
         File::create(out.join("memory.x"))
             .unwrap()

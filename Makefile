@@ -3,4 +3,9 @@ default: deploy
 
 .PHONY: deploy
 deploy:
-	cargo hf2 --release
+	cd device && cargo hf2 --release
+
+.PHONY: test
+test:
+	cargo test
+

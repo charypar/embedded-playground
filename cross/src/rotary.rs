@@ -118,3 +118,11 @@ impl Rotary {
         false
     }
 }
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn test() {
+        todo!();
+    }
+}

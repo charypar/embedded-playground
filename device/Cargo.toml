@@ -1,0 +1,25 @@
+[package]
+name = "rust-playground"
+version = "0.1.0"
+authors = ["Viktor Charypar <charypar@gmail.com>"]
+edition = "2018"
+
+[[bin]]
+name = "rust-playground"
+test = false
+bench = false
+
+[dependencies]
+panic-halt = "0.2.0"
+cortex-m-rtic = { version = "1.0.0" }
+smart-leds = "0.3"
+smart-leds-trait = "0.2"
+apa102-spi = "0.3"
+usb-device = "0.2"
+usbd-serial = "0.1"
+usbd-hid = "0.5"
+cross = { path = "../cross" }
+
+[dependencies.atsamd-hal]
+git = "https://github.com/atsamd-rs/atsamd"
+features = ["rtic", "samd21e-rt", "samd21", "usb", "unproven"] 

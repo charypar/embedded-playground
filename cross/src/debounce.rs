@@ -49,3 +49,11 @@ impl<T: PartialEq + Clone> Debounced<T> {
         Some(self.candidate.clone())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn test() {
+        todo!();
+    }
+}

@@ -2,11 +2,8 @@
 #![no_main]
 #![no_std]
 
-mod debounce;
 mod descriptor;
 mod dotstar;
-mod hold;
-mod rotary;
 
 use panic_halt as _;
 
@@ -31,10 +28,11 @@ mod app {
     use usbd_hid::hid_class::HIDClass;
     use usbd_serial::SerialPort;
 
-    use super::debounce::Debounced;
     use super::descriptor::JoystickReport;
     use super::dotstar::DotStar;
-    use super::rotary::{self, Rotary};
+
+    use cross::debounce::Debounced;
+    use cross::rotary::{self, Rotary};
 
     #[monotonic(binds = RTC, default = true)]
     type RtcMonotonic = Rtc<Count32Mode>;
