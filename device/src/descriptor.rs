@@ -7,16 +7,25 @@ use usbd_hid::descriptor::generator_prelude::*;
             (usage_page = BUTTON, usage_min = BUTTON_1, usage_max = 0x06) = {
                 #[packed_bits 6] #[item_settings data,variable, absolute] buttons=input;
             };
+            (usage_page = GENERIC_DESKTOP,) = {
+                (usage = WHEEL,) = {
+                    #[item_settings data,variable,relative] wheel=input;
+                }
+            };
         }
     }
 )]
 pub struct JoystickReport {
     pub buttons: u8,
+    pub wheel: i8,
 }
 
 impl JoystickReport {
     pub fn new() -> Self {
-        Self { buttons: 0 }
+        Self {
+            buttons: 0,
+            wheel: 0,
+        }
     }
 
     pub fn set_button(&mut self, n: usize, value: bool) {

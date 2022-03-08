@@ -94,12 +94,18 @@ impl Rotary {
         output
     }
 
-    pub fn get(&self) -> Out {
+    pub fn get(&self) -> (Out, i8) {
         if self.out_value == Out::None || self.out_counter < self.hold_count {
-            return Out::None;
+            return (Out::None, 0);
         }
 
-        return self.out_value;
+        let velocity = match self.out_value {
+            Out::CW => self.out_count as i8,
+            Out::CCW => -(self.out_count as i8),
+            Out::None => 0,
+        };
+
+        return (self.out_value, velocity);
     }
 
     pub fn get_cw(&self) -> bool {

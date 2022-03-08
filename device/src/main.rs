@@ -231,9 +231,11 @@ mod app {
             inputs.encoder.get_ccw(),
             inputs.encoder_button.get(),
         ];
+        let (_, wheel) = inputs.encoder.get();
 
         let mut report = JoystickReport::new();
 
+        report.wheel = wheel;
         for (button, state) in buttons.iter().enumerate() {
             report.set_button(button, *state);
         }
