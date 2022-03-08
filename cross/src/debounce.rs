@@ -39,7 +39,7 @@ impl<T: PartialEq + Clone> Debounced<T> {
             self.stable_for += 1;
         }
 
-        if self.stable_for <= self.stable_minimum {
+        if self.stable_for < self.stable_minimum {
             return None;
         }
 
@@ -52,8 +52,89 @@ impl<T: PartialEq + Clone> Debounced<T> {
 
 #[cfg(test)]
 mod tests {
+    use super::Debounced;
+
     #[test]
-    fn test() {
-        todo!();
+    fn test_changes_state_when_stable() {
+        let mut debouncer = Debounced::new(false, 3);
+        let input = [false, false, true, true, true];
+
+        let expected = vec![
+            (None, false),
+            (None, false),
+            (None, false),
+            (None, false),
+            (Some(true), true),
+        ];
+        let actual = feed(&mut debouncer, &input);
+
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_ignores_blips() {
+        let mut debouncer = Debounced::new(false, 3);
+        let input = [false, false, true, false];
+
+        let expected = vec![(None, false), (None, false), (None, false), (None, false)];
+        let actual = feed(&mut debouncer, &input);
+
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_makes_multiple_changes() {
+        let mut debouncer = Debounced::new(false, 2);
+        let input = [false, true, true, false, false];
+
+        let expected = vec![
+            (None, false),
+            (None, false),
+            (Some(true), true),
+            (None, true),
+            (Some(false), false),
+        ];
+        let actual = feed(&mut debouncer, &input);
+
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_complex_scenario() {
+        let mut debouncer = Debounced::new(false, 2);
+        let input = [
+            false, true, false, true, true, false, true, false, false, true,
+        ];
+
+        let expected = vec![
+            (None, false),
+            (None, false),
+            (None, false),
+            (None, false),
+            (Some(true), true),
+            (None, true),
+            (None, true),
+            (None, true),
+            (Some(false), false),
+            (None, false),
+        ];
+        let actual = feed(&mut debouncer, &input);
+
+        assert_eq!(actual, expected);
+    }
+
+    fn feed<T>(debouncer: &mut Debounced<T>, input: &[T]) -> Vec<(Option<T>, T)>
+    where
+        T: PartialEq + Clone,
+    {
+        input
+            .into_iter()
+            .map(|i| {
+                let out = debouncer.update(i.clone());
+                let state = debouncer.get();
+
+                (out, state)
+            })
+            .collect()
     }
 }
