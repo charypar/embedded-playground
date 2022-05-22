@@ -1,0 +1,22 @@
+[package]
+name = "spinny"
+version = "0.1.0"
+authors = ["Viktor Charypar <charypar@gmail.com>"]
+edition = "2018"
+
+[[bin]]
+name = "spinny"
+test = false
+bench = false
+
+[dependencies]
+panic-halt = "0.2.0"
+cortex-m-rtic = { version = "1.0.0" }
+usb-device = "0.2"
+usbd-serial = "0.1"
+usbd-hid = "0.5"
+cross = { path = "../cross" }
+
+[dependencies.atsamd-hal]
+version = "^0.15"
+features = ["rtic", "samd21g-rt", "samd21", "usb", "unproven"]

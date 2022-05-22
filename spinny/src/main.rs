@@ -3,22 +3,20 @@
 #![no_std]
 
 mod descriptor;
-mod dotstar;
 
 use panic_halt as _;
 
 use rtic::app;
 
-// DotStar
-
 #[app(device = atsamd_hal::pac, peripherals = true, dispatchers = [EVSYS])]
 mod app {
     use atsamd_hal as hal;
+    use atsamd_hal::gpio::PushPullOutput;
     use hal::prelude::*;
 
     use hal::clock::GenericClockController;
-    use hal::gpio::v2::{Input, Output, Pin, Pins, PullDown, PushPull};
-    use hal::gpio::v2::{PA02, PA06, PA07, PA08, PA09};
+    use hal::gpio::{Pin, Pins, PullUpInput};
+    use hal::gpio::{PA04, PA05, PA10, PA11, PA14, PA27, PB02, PB03, PB09};
     use hal::rtc::{Count32Mode, Duration, Rtc};
     use hal::usb::UsbBus;
 
@@ -29,29 +27,29 @@ mod app {
     use usbd_serial::SerialPort;
 
     use super::descriptor::JoystickReport;
-    use super::dotstar::DotStar;
 
     use cross::debounce::Debounced;
-    use cross::rotary::{self, Rotary};
+    use cross::rotary::Rotary;
 
     #[monotonic(binds = RTC, default = true)]
     type RtcMonotonic = Rtc<Count32Mode>;
 
-    pub struct Inputs {
+    pub struct InputsState {
+        buttons: [Debounced<bool>; 4],
         encoder: Rotary,
-        toggle: Debounced<bool>,
-        button_a: Debounced<bool>,
-        button_b: Debounced<bool>,
         encoder_button: Debounced<bool>,
     }
 
-    pub struct PinMatrix {
-        rows: (Pin<PA06, Output<PushPull>>, Pin<PA07, Output<PushPull>>),
-        columns: (
-            Pin<PA08, Input<PullDown>>,
-            Pin<PA02, Input<PullDown>>,
-            Pin<PA09, Input<PullDown>>,
+    pub struct Inputs {
+        buttons: (
+            Pin<PB09, PullUpInput>,
+            Pin<PA04, PullUpInput>,
+            Pin<PA05, PullUpInput>,
+            Pin<PB02, PullUpInput>,
         ),
+        encoder_button: Pin<PA11, PullUpInput>,
+        encoder_a: Pin<PA10, PullUpInput>,
+        encoder_b: Pin<PA14, PullUpInput>,
     }
 
     #[shared]
@@ -63,9 +61,9 @@ mod app {
     #[local]
     struct Local {
         usb_device: UsbDevice<'static, UsbBus>,
-        dotstar: DotStar,
-        matrix: PinMatrix,
         inputs: Inputs,
+        inputs_state: InputsState,
+        leds: (Pin<PA27, PushPullOutput>, Pin<PB03, PushPullOutput>),
     }
 
     #[init(local = [usb_allocator: Option<UsbBusAllocator<UsbBus>> = None])]
@@ -88,15 +86,11 @@ mod app {
         let gclk1 = clocks.gclk1(); // OSC32K
 
         let rtc_clock = clocks.rtc(&gclk1).unwrap();
-        let spi_clock = clocks.sercom1_core(&gclk0).unwrap();
         let usb_clock = clocks.usb(&gclk0).unwrap();
 
         // Set up the real-time clock, using the 32K oscillator clock
         // TODO this can be clocked by a subdivided clock for lower power consumption (probably)
         let rtc = Rtc::count32_mode(peri.RTC, rtc_clock.freq(), &mut peri.PM);
-
-        let mut dotstar = DotStar::new(pins.pa00, pins.pa01, &peri.PM, peri.SERCOM1, spi_clock);
-        dotstar.display();
 
         // Enable USB
 
@@ -110,27 +104,28 @@ mod app {
 
         let (usb_device, serial_port, hid_device) = init_usb(usb_allocator);
 
-        // Input matrix
-
-        let matrix = PinMatrix {
-            rows: (
-                pins.pa06.into_push_pull_output(),
-                pins.pa07.into_push_pull_output(),
-            ),
-            columns: (
-                pins.pa08.into_pull_down_input(),
-                pins.pa02.into_pull_down_input(),
-                pins.pa09.into_pull_down_input(),
-            ),
-        };
-
         // Input
 
         let inputs = Inputs {
+            buttons: (
+                pins.pb09.into(),
+                pins.pa04.into(),
+                pins.pa05.into(),
+                pins.pb02.into(),
+            ),
+            encoder_button: pins.pa11.into(),
+            encoder_a: pins.pa10.into(),
+            encoder_b: pins.pa14.into(),
+        };
+
+        let inputs_state = InputsState {
+            buttons: [
+                Debounced::new(false, 10),
+                Debounced::new(false, 10),
+                Debounced::new(false, 10),
+                Debounced::new(false, 10),
+            ],
             encoder: Rotary::new(20),
-            toggle: Debounced::new(true, 20),
-            button_a: Debounced::new(false, 10),
-            button_b: Debounced::new(false, 10),
             encoder_button: Debounced::new(false, 10),
         };
 
@@ -141,12 +136,15 @@ mod app {
             hid_device,
         };
 
-        let local = Local {
+        let mut local = Local {
             usb_device,
-            dotstar,
-            matrix,
             inputs,
+            inputs_state,
+            leds: (pins.pa27.into(), pins.pb03.into()),
         };
+
+        local.leds.0.set_high().unwrap();
+        local.leds.1.set_high().unwrap();
 
         // TODO see if we can do this on a periodic timer instead,
         // so the task execution isn't fallible
@@ -155,87 +153,64 @@ mod app {
         (shared, local, init::Monotonics(rtc))
     }
 
-    #[task(shared = [serial_port, hid_device], local = [matrix, inputs, dotstar])]
+    #[task(shared = [serial_port, hid_device], local = [inputs, inputs_state, leds])]
     fn tick(ctx: tick::Context) {
-        let PinMatrix { rows, columns } = ctx.local.matrix;
-        let inputs = ctx.local.inputs;
+        let pins = ctx.local.inputs;
+        let state = ctx.local.inputs_state;
+        let leds = ctx.local.leds;
 
-        let mut serial_port = ctx.shared.serial_port;
+        let mut _serial_port = ctx.shared.serial_port;
 
-        rows.0.set_high().unwrap();
+        // Read inputs and update state
 
-        inputs.encoder_button.update(columns.0.is_high().unwrap());
-        let (a, b) = (columns.1.is_high().unwrap(), columns.2.is_high().unwrap());
-        let enc_out = inputs.encoder.update(a, b);
+        state
+            .encoder_button
+            .update(pins.encoder_button.is_low().unwrap());
+        let (a, b) = (
+            pins.encoder_a.is_low().unwrap(),
+            pins.encoder_b.is_low().unwrap(),
+        );
+        state.encoder.update(a, b);
 
-        rows.0.set_low().unwrap();
-        rows.1.set_high().unwrap();
+        state.buttons[0].update(pins.buttons.0.is_low().unwrap());
+        state.buttons[1].update(pins.buttons.1.is_low().unwrap());
+        state.buttons[2].update(pins.buttons.2.is_low().unwrap());
+        state.buttons[3].update(pins.buttons.3.is_low().unwrap());
 
-        let btn_a_out = inputs.button_a.update(columns.0.is_high().unwrap());
-        let btn_b_out = inputs.button_b.update(columns.1.is_high().unwrap());
-        inputs.toggle.update(columns.2.is_low().unwrap());
+        // reset LEDs
 
-        rows.1.set_low().unwrap();
+        leds.0.set_high().unwrap();
+        leds.1.set_high().unwrap();
 
-        // Update state
-
-        let mut dotstar = ctx.local.dotstar;
-
-        dotstar.enabled = inputs.toggle.get();
-
-        match enc_out {
-            rotary::Out::CW => {
-                dotstar.set_brightness(dotstar.brightness() + 8);
-                serial_port.lock(|serial| serial.write("UP\n\r".as_bytes()).ok());
-            }
-            rotary::Out::CCW => {
-                dotstar.set_brightness(dotstar.brightness() - 8);
-                serial_port.lock(|serial| serial.write("DOWN\n\r".as_bytes()).ok());
-            }
-            _ => (),
-        }
-
-        match btn_a_out {
-            Some(true) => {
-                dotstar.set_color(dotstar.color() + 1);
-                serial_port.lock(|serial| serial.write("A\n\r".as_bytes()).ok());
-            }
-            Some(false) => {
-                serial_port.lock(|serial| serial.write("!A\n\r".as_bytes()).ok());
-            }
-            _ => (),
-        }
-
-        match btn_b_out {
-            Some(true) => {
-                dotstar.set_color(dotstar.color() - 1);
-                serial_port.lock(|serial| serial.write("B\n\r".as_bytes()).ok());
-            }
-            Some(false) => {
-                serial_port.lock(|serial| serial.write("!B\n\r".as_bytes()).ok());
-            }
-            _ => (),
-        }
-
-        // Update LED
-
-        dotstar.display();
-
-        // HID joystick
+        // Report state as HID joystick
 
         let buttons = [
-            inputs.button_a.get(),
-            inputs.button_b.get(),
-            inputs.toggle.get(),
-            inputs.encoder.get_cw(),
-            inputs.encoder.get_ccw(),
-            inputs.encoder_button.get(),
+            state.buttons[0].get(),
+            state.buttons[1].get(),
+            state.buttons[2].get(),
+            state.buttons[3].get(),
+            state.encoder.get_cw(),
+            state.encoder.get_ccw(),
+            state.encoder_button.get(),
         ];
-        let (_, wheel) = inputs.encoder.get();
+
+        // Debug LEDs
+
+        if buttons[4] {
+            leds.0.set_low().unwrap();
+        }
+
+        if buttons[5] {
+            leds.1.set_low().unwrap();
+        }
+
+        if buttons[0] || buttons[1] || buttons[2] || buttons[3] || buttons[6] {
+            leds.0.set_low().unwrap();
+            leds.1.set_low().unwrap();
+        }
 
         let mut report = JoystickReport::new();
 
-        report.wheel = wheel;
         for (button, state) in buttons.iter().enumerate() {
             report.set_button(button, *state);
         }
@@ -278,8 +253,8 @@ mod app {
         // https://github.com/obdev/v-usb/blob/master/usbdrv/USB-IDs-for-free.txt
         let usb_device = UsbDeviceBuilder::new(allocator, UsbVidPid(0x16c0, 0x27dc))
             .manufacturer("Niche http://niche.london/")
-            .product("Blinky development board")
-            .serial_number("niche.london:Blinky-v0.1")
+            .product("Spinny development board")
+            .serial_number("niche.london:Spinny-v0.1")
             .composite_with_iads()
             .build();
 

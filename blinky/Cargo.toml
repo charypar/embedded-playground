@@ -1,11 +1,11 @@
 [package]
-name = "rust-playground"
+name = "blinky"
 version = "0.1.0"
 authors = ["Viktor Charypar <charypar@gmail.com>"]
 edition = "2018"
 
 [[bin]]
-name = "rust-playground"
+name = "blinky"
 test = false
 bench = false
 
@@ -21,5 +21,6 @@ usbd-hid = "0.5"
 cross = { path = "../cross" }
 
 [dependencies.atsamd-hal]
-git = "https://github.com/atsamd-rs/atsamd"
-features = ["rtic", "samd21e-rt", "samd21", "usb", "unproven"] 
+version = "0.15"
+name = "atsamd-hal-21e"
+features = ["rtic", "samd21e-rt", "samd21", "usb", "unproven"]

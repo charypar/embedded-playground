@@ -2,11 +2,11 @@ use core::cmp::{max, min};
 
 use atsamd_hal as hal;
 use hal::clock::Sercom1CoreClock;
-use hal::gpio::v2::{Alternate, Disabled, Floating, Pin, D};
-use hal::gpio::v2::{PA00, PA01};
+use hal::gpio::{Alternate, Disabled, Floating, Pin, D};
+use hal::gpio::{PA00, PA01};
 use hal::pac::{PM, SERCOM1};
 use hal::prelude::*;
-use hal::sercom::v2::{spi, Sercom1};
+use hal::sercom::{spi, Sercom1};
 use hal::typelevel::NoneT;
 
 use apa102_spi::Apa102;

@@ -12,16 +12,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "apa102-spi"
-version = "0.3.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d92cd690fd2aae5bc549e2dc392d9082aab3ccf851aa39b0ab84b2934f4c57a3"
-dependencies = [
- "embedded-hal",
- "smart-leds-trait",
-]
-
-[[package]]
 name = "atomic-polyfill"
 version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -33,10 +23,11 @@ dependencies = [
 
 [[package]]
 name = "atsamd-hal"
-version = "0.14.0"
-source = "git+https://github.com/atsamd-rs/atsamd#62f5b959341545ff07b3b03e98b9249a3519ee0b"
+version = "0.15.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "73ef309bf38b69dfbf7d5781c9fbce35b876a7f163653a7105848885047827a6"
 dependencies = [
- "atsamd21e",
+ "atsamd21g",
  "bitfield",
  "bitflags",
  "cortex-m",
@@ -56,9 +47,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "atsamd21e"
-version = "0.11.0"
-source = "git+https://github.com/atsamd-rs/atsamd#62f5b959341545ff07b3b03e98b9249a3519ee0b"
+name = "atsamd21g"
+version = "0.12.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4ec93ce03e1b6c6f852c5b3a1d9f2e489c30c0eddca07487083bb783ebc05bad"
 dependencies = [
  "cortex-m",
  "cortex-m-rt",
@@ -103,12 +95,6 @@ name = "bitflags"
 version = "1.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bef38d45163c2f1dde094a7dfd33ccf595c92905c8f8f4fdc18d06fb1037718a"
-
-[[package]]
-name = "bytemuck"
-version = "1.7.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "439989e6b8c38d1b6570a384ef1e49c8848128f5a97f3914baef02920842712f"
 
 [[package]]
 name = "byteorder"
@@ -193,6 +179,10 @@ dependencies = [
  "cortex-m",
  "riscv",
 ]
+
+[[package]]
+name = "cross"
+version = "0.1.0"
 
 [[package]]
 name = "embedded-hal"
@@ -409,15 +399,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f497285884f3fcff424ffc933e56d7cbca511def0c9831a7f9b5f6153e3cc89b"
 
 [[package]]
-name = "rgb"
-version = "0.8.31"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9a374af9a0e5fdcdd98c1c7b64f05004f9ea2555b6c75f211daa81268a3c50f1"
-dependencies = [
- "bytemuck",
-]
-
-[[package]]
 name = "riscv"
 version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -463,21 +444,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "rust-playground"
-version = "0.1.0"
-dependencies = [
- "apa102-spi",
- "atsamd-hal",
- "cortex-m-rtic",
- "panic-halt",
- "smart-leds",
- "smart-leds-trait",
- "usb-device",
- "usbd-hid",
- "usbd-serial",
-]
-
-[[package]]
 name = "rustc_version"
 version = "0.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -520,30 +486,25 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ce31e24b01e1e524df96f1c2fdd054405f8d7376249a5110886fb4b658484789"
 
 [[package]]
-name = "smart-leds"
-version = "0.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "38dd45fa275f70b4110eac5f5182611ad384f88bb22b68b9a9c3cafd7015290b"
-dependencies = [
- "smart-leds-trait",
-]
-
-[[package]]
-name = "smart-leds-trait"
-version = "0.2.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ebf6d833fa93f16a1c1874e62c2aebe8567e5bdd436d59bf543ed258b6f7a8e3"
-dependencies = [
- "rgb",
-]
-
-[[package]]
 name = "spin"
 version = "0.9.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "511254be0c5bcf062b019a6c89c01a664aa359ded62f78aa72c6fc137c0590e5"
 dependencies = [
  "lock_api",
+]
+
+[[package]]
+name = "spinny"
+version = "0.1.0"
+dependencies = [
+ "atsamd-hal",
+ "cortex-m-rtic",
+ "cross",
+ "panic-halt",
+ "usb-device",
+ "usbd-hid",
+ "usbd-serial",
 ]
 
 [[package]]

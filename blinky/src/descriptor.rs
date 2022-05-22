@@ -5,10 +5,10 @@ use usbd_hid::descriptor::generator_prelude::*;
     (collection = APPLICATION, usage_page = GENERIC_DESKTOP, usage = JOYSTICK) = {
         (collection = PHYSICAL, usage = JOYSTICK) = {
             (usage_page = BUTTON, usage_min = BUTTON_1, usage_max = 0x06) = {
-                #[packed_bits 6] #[item_settings data,variable, absolute] buttons=input;
+                #[packed_bits 6] #[item_settings data,variable,absolute] buttons=input;
             };
             (usage_page = GENERIC_DESKTOP,) = {
-                (usage = WHEEL,) = {
+                (usage = 0x37,) = { // 0x37 is a Dial
                     #[item_settings data,variable,relative] wheel=input;
                 }
             };
