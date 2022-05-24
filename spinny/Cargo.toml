@@ -15,6 +15,7 @@ cortex-m-rtic = { version = "1.0.0" }
 usb-device = "0.2"
 usbd-serial = "0.1"
 usbd-hid = "0.5"
+stackfmt = "0.1"
 cross = { path = "../cross" }
 
 [dependencies.atsamd-hal]

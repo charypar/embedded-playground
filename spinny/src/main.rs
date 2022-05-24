@@ -18,6 +18,7 @@ mod app {
     use hal::gpio::{Pin, Pins, PullUpInput};
     use hal::gpio::{PA04, PA05, PA10, PA11, PA14, PA27, PB02, PB03, PB09};
     use hal::rtc::{Count32Mode, Duration, Rtc};
+    use hal::timer::TimerCounter3;
     use hal::usb::UsbBus;
 
     use usb_device::class_prelude::UsbBusAllocator;
@@ -54,12 +55,14 @@ mod app {
 
     #[shared]
     struct Shared {
+        microseconds: u32,
         serial_port: SerialPort<'static, UsbBus>,
         hid_device: HIDClass<'static, UsbBus>,
     }
 
     #[local]
     struct Local {
+        timer: TimerCounter3,
         usb_device: UsbDevice<'static, UsbBus>,
         inputs: Inputs,
         inputs_state: InputsState,
@@ -83,10 +86,16 @@ mod app {
             &mut peri.NVMCTRL,
         );
         let gclk0 = clocks.gclk0(); // OSC48Mhz
-        let gclk1 = clocks.gclk1(); // OSC32K
 
-        let rtc_clock = clocks.rtc(&gclk1).unwrap();
         let usb_clock = clocks.usb(&gclk0).unwrap();
+        let timing_clock = clocks.tcc2_tc3(&gclk0).unwrap(); // for time tracking
+        let rtc_clock = clocks.rtc(&gclk0).unwrap(); // for RTIC
+
+        // Set up a periodic timer used to measure elapsed time for tracking duration etc
+        let mut tc3 = TimerCounter3::tc3_(&timing_clock, peri.TC3, &mut peri.PM);
+
+        tc3.start(1.mhz());
+        tc3.enable_interrupt();
 
         // Set up the real-time clock, using the 32K oscillator clock
         // TODO this can be clocked by a subdivided clock for lower power consumption (probably)
@@ -120,23 +129,25 @@ mod app {
 
         let inputs_state = InputsState {
             buttons: [
-                Debounced::new(false, 10),
-                Debounced::new(false, 10),
-                Debounced::new(false, 10),
-                Debounced::new(false, 10),
+                Debounced::new(false, 20),
+                Debounced::new(false, 20),
+                Debounced::new(false, 20),
+                Debounced::new(false, 20),
             ],
-            encoder: Rotary::new(20),
-            encoder_button: Debounced::new(false, 10),
+            encoder: Rotary::new(40),
+            encoder_button: Debounced::new(false, 20),
         };
 
         // Program state
 
         let shared = Shared {
+            microseconds: 0,
             serial_port,
             hid_device,
         };
 
         let mut local = Local {
+            timer: tc3,
             usb_device,
             inputs,
             inputs_state,
@@ -153,13 +164,16 @@ mod app {
         (shared, local, init::Monotonics(rtc))
     }
 
-    #[task(shared = [serial_port, hid_device], local = [inputs, inputs_state, leds])]
+    #[task(shared = [serial_port, hid_device, microseconds], local = [inputs, inputs_state, leds])]
     fn tick(ctx: tick::Context) {
         let pins = ctx.local.inputs;
         let state = ctx.local.inputs_state;
         let leds = ctx.local.leds;
 
-        let mut _serial_port = ctx.shared.serial_port;
+        let mut serial_port = ctx.shared.serial_port;
+        let mut microseconds = ctx.shared.microseconds;
+
+        let start = microseconds.lock(|ms| *ms);
 
         // Read inputs and update state
 
@@ -219,9 +233,17 @@ mod app {
 
         hid_device.lock(|hid| hid.push_input(&report).ok());
 
+        let end = microseconds.lock(|ms| *ms);
+
+        let mut buf = [0u8; 64];
+        let msg: &str =
+            stackfmt::fmt_truncate(&mut buf, format_args!("\rMicros = {}\r", end - start));
+
+        serial_port.lock(|p| p.write(msg.as_bytes())).ok();
+
         // TODO see if we can do this on a periodic timer instead,
         // so the task execution isn't fallible
-        tick::spawn_after(Duration::millis(1)).unwrap();
+        tick::spawn_after(Duration::micros(500)).unwrap();
     }
 
     #[task(binds = USB, priority = 2, local = [usb_device], shared = [serial_port, hid_device])]
@@ -238,6 +260,15 @@ mod app {
             let mut buf = [0u8; 64];
             serial.read(&mut buf).ok();
         });
+    }
+
+    #[task(binds = TC3, priority = 2, shared = [microseconds], local = [timer])]
+    fn timer_tick(ctx: timer_tick::Context) {
+        if ctx.local.timer.wait().is_ok() {
+            let mut ms = ctx.shared.microseconds;
+
+            ms.lock(|ms| *ms += 1);
+        }
     }
 
     fn init_usb<'a>(
