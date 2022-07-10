@@ -1,0 +1,4 @@
+(fp_lib_table
+  (lib (name "JLCPCB")(type "KiCad")(uri "${KIPRJMOD}/libs/JLCPCB.pretty")(options "")(descr ""))
+  (lib (name "DigiKey")(type "KiCad")(uri "${KIPRJMOD}/libs/DigiKey.pretty")(options "")(descr ""))
+)
