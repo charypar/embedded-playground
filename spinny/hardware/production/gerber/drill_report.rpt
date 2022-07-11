@@ -1,0 +1,28 @@
+Drill report for Spinny.kicad_pcb
+Created on Monday, 11 July 2022 at 21:24:59
+
+Copper Layer Stackup:
+    =============================================================
+    L1 :  F.Cu                      front
+    L2 :  B.Cu                      back
+
+
+Drill file 'Spinny.drl' contains
+    plated through holes:
+    =============================================================
+    T1  0.300mm  0.0118"  (23 holes)
+    T2  0.600mm  0.0236"  (4 holes)  (with 4 slots)
+    T3  1.000mm  0.0394"  (20 holes)
+    T4  1.100mm  0.0433"  (5 holes)
+    T5  2.000mm  0.0787"  (2 holes)  (with 2 slots)
+
+    Total plated holes count 54
+
+
+Not plated through holes are merged with plated holes
+    unplated through holes:
+    =============================================================
+    T6  0.650mm  0.0256"  (2 holes)
+    T7  3.200mm  0.1260"  (4 holes)
+
+    Total unplated holes count 6
