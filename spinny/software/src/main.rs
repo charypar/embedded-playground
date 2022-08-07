@@ -69,9 +69,8 @@ mod app {
         let mut flash = ctx.device.FLASH.constrain();
         let rcc = ctx.device.RCC.constrain();
         rcc.cfgr
-            .use_hse(8.MHz())
-            .sysclk(36.MHz())
-            .pclk1(36.MHz())
+            .use_hse(8.MHz()) // External crystal is on 8 Mhz
+            .sysclk(72.MHz()) // Clock system on 72 Mhz, used also by USB, divided by 1.5 to 48 MHz
             .freeze(&mut flash.acr);
 
         // Set up a periodic timer used to measure elapsed time for tracking duration etc
@@ -86,14 +85,17 @@ mod app {
 
         // Enable USB
 
-        let gpioa = ctx.device.GPIOA.split();
+        let mut gpioa = ctx.device.GPIOA.split();
         let mut gpiob = ctx.device.GPIOB.split();
         let mut gpioc = ctx.device.GPIOC.split();
+
+        let mut usb_dp = gpioa.pa12.into_push_pull_output(&mut gpioa.crh);
+        usb_dp.set_low();
 
         let usb = Peripheral {
             usb: ctx.device.USB,
             pin_dm: gpioa.pa11,
-            pin_dp: gpioa.pa12,
+            pin_dp: usb_dp.into_floating_input(&mut gpioa.crh),
         };
 
         let usb_bus = ctx.local.usb_bus.insert(UsbBus::new(usb));
@@ -117,7 +119,7 @@ mod app {
                 Debounced::new(false, 20),
                 Debounced::new(false, 20),
             ],
-            encoder: Rotary::new(40),
+            encoder: Rotary::new(80),
             encoder_button: Debounced::new(false, 20),
         };
 
@@ -167,9 +169,7 @@ mod app {
         // state.buttons[2].update(pins.buttons.2.is_low().unwrap());
         // state.buttons[3].update(pins.buttons.3.is_low().unwrap());
 
-        // blink LED
-
-        led.toggle();
+        led.set_low();
 
         // Report state as HID joystick
 
@@ -184,6 +184,9 @@ mod app {
         ];
 
         // Debug LEDs
+        if buttons[4] || buttons[5] || buttons[6] {
+            led.set_high()
+        }
 
         let mut report = JoystickReport::new();
 
@@ -205,7 +208,7 @@ mod app {
 
         // TODO see if we can do this on a periodic timer instead,
         // so the task execution isn't fallible
-        tick::spawn_after(Duration::<u64, 1, 1000>::millis(500)).unwrap();
+        tick::spawn_after(Duration::<u64, 1, 1000>::micros(500)).unwrap();
     }
 
     #[task(binds = USB_HP_CAN_TX, priority = 2, shared = [usb_device, serial_port, hid_device])]
