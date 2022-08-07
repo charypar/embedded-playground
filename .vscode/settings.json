@@ -1,7 +1,7 @@
 {
   "rust-analyzer.linkedProjects": [
     "blinky/Cargo.toml",
-    "spinny/Cargo.toml",
+    "spinny/software/Cargo.toml",
     "cross/Cargo.toml"
   ]
 }

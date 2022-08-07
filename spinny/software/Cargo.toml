@@ -10,14 +10,16 @@ test = false
 bench = false
 
 [dependencies]
+embedded-hal = "0.2.6"
 panic-halt = "0.2.0"
 cortex-m-rtic = { version = "1.0.0" }
+systick-monotonic = "1.0.0"
 usb-device = "0.2"
 usbd-serial = "0.1"
 usbd-hid = "0.5"
 stackfmt = "0.1"
-cross = { path = "../cross" }
+cross = { path = "../../cross" }
 
-[dependencies.atsamd-hal]
-version = "^0.15"
-features = ["rtic", "samd21g-rt", "samd21", "usb", "unproven"]
+[dependencies.stm32f1xx-hal]
+version = "^0.9"
+features = ["rt", "stm32f103", "medium", "rtic"]

@@ -2,24 +2,22 @@
 #![no_main]
 #![no_std]
 
-mod descriptor;
-
 use panic_halt as _;
-
 use rtic::app;
 
-#[app(device = atsamd_hal::pac, peripherals = true, dispatchers = [EVSYS])]
-mod app {
-    use atsamd_hal as hal;
-    use atsamd_hal::gpio::PushPullOutput;
-    use hal::prelude::*;
+mod descriptor;
 
-    use hal::clock::GenericClockController;
-    use hal::gpio::{Pin, Pins, PullUpInput};
-    use hal::gpio::{PA04, PA05, PA10, PA11, PA14, PA27, PB02, PB03, PB09};
-    use hal::rtc::{Count32Mode, Duration, Rtc};
-    use hal::timer::TimerCounter3;
-    use hal::usb::UsbBus;
+#[app(device = stm32f1xx_hal::pac, peripherals = true, dispatchers = [SPI1])]
+mod app {
+    use hal::prelude::*;
+    use stm32f1xx_hal as hal;
+
+    use hal::gpio::gpiob::{PB5, PB8, PB9};
+    use hal::gpio::gpioc::PC13;
+    use hal::gpio::{Input, Output, PullUp, PushPull};
+    use hal::usb::{Peripheral, UsbBus};
+
+    use systick_monotonic::{fugit::Duration, Systick};
 
     use usb_device::class_prelude::UsbBusAllocator;
     use usb_device::device::{UsbDevice, UsbDeviceBuilder, UsbVidPid};
@@ -32,8 +30,8 @@ mod app {
     use cross::debounce::Debounced;
     use cross::rotary::Rotary;
 
-    #[monotonic(binds = RTC, default = true)]
-    type RtcMonotonic = Rtc<Count32Mode>;
+    #[monotonic(binds = SysTick, default = true)]
+    type RtcMonotonic = Systick<1000>;
 
     pub struct InputsState {
         buttons: [Debounced<bool>; 4],
@@ -42,89 +40,74 @@ mod app {
     }
 
     pub struct Inputs {
-        buttons: (
-            Pin<PB09, PullUpInput>,
-            Pin<PA04, PullUpInput>,
-            Pin<PA05, PullUpInput>,
-            Pin<PB02, PullUpInput>,
-        ),
-        encoder_button: Pin<PA11, PullUpInput>,
-        encoder_a: Pin<PA10, PullUpInput>,
-        encoder_b: Pin<PA14, PullUpInput>,
+        encoder_button: PB5<Input<PullUp>>,
+        encoder_a: PB9<Input<PullUp>>,
+        encoder_b: PB8<Input<PullUp>>,
     }
 
     #[shared]
     struct Shared {
         microseconds: u32,
-        serial_port: SerialPort<'static, UsbBus>,
-        hid_device: HIDClass<'static, UsbBus>,
+        usb_device: UsbDevice<'static, UsbBus<Peripheral>>,
+        serial_port: SerialPort<'static, UsbBus<Peripheral>>,
+        hid_device: HIDClass<'static, UsbBus<Peripheral>>,
     }
 
     #[local]
     struct Local {
-        timer: TimerCounter3,
-        usb_device: UsbDevice<'static, UsbBus>,
         inputs: Inputs,
         inputs_state: InputsState,
-        leds: (Pin<PA27, PushPullOutput>, Pin<PB03, PushPullOutput>),
+        led: PC13<Output<PushPull>>,
     }
 
-    #[init(local = [usb_allocator: Option<UsbBusAllocator<UsbBus>> = None])]
+    #[init(local = [usb_bus: Option<UsbBusAllocator<UsbBus<Peripheral>>> = None])]
     fn init(ctx: init::Context) -> (Shared, Local, init::Monotonics) {
         // Begin hardware initialisation
         // FIXME pull all of this out
 
-        let mut peri = ctx.device;
-        let pins = Pins::new(peri.PORT);
-
         // Configure clocks
-
-        let mut clocks = GenericClockController::with_internal_32kosc(
-            peri.GCLK,
-            &mut peri.PM,
-            &mut peri.SYSCTRL,
-            &mut peri.NVMCTRL,
-        );
-        let gclk0 = clocks.gclk0(); // OSC48Mhz
-
-        let usb_clock = clocks.usb(&gclk0).unwrap();
-        let timing_clock = clocks.tcc2_tc3(&gclk0).unwrap(); // for time tracking
-        let rtc_clock = clocks.rtc(&gclk0).unwrap(); // for RTIC
+        let mut flash = ctx.device.FLASH.constrain();
+        let rcc = ctx.device.RCC.constrain();
+        rcc.cfgr
+            .use_hse(8.MHz())
+            .sysclk(36.MHz())
+            .pclk1(36.MHz())
+            .freeze(&mut flash.acr);
 
         // Set up a periodic timer used to measure elapsed time for tracking duration etc
-        let mut tc3 = TimerCounter3::tc3_(&timing_clock, peri.TC3, &mut peri.PM);
+        // let mut tc3 = TimerCounter3::tc3_(&timing_clock, peri.TC3, &mut peri.PM);
 
-        tc3.start(1.mhz());
-        tc3.enable_interrupt();
+        // tc3.start(1.mhz());
+        // tc3.enable_interrupt();
 
         // Set up the real-time clock, using the 32K oscillator clock
         // TODO this can be clocked by a subdivided clock for lower power consumption (probably)
-        let rtc = Rtc::count32_mode(peri.RTC, rtc_clock.freq(), &mut peri.PM);
+        let rtc = Systick::new(ctx.core.SYST, 36_000_000);
 
         // Enable USB
 
-        let usb_bus = UsbBus::new(&usb_clock, &mut peri.PM, pins.pa24, pins.pa25, peri.USB);
-        let usb_allocator = ctx
-            .local
-            .usb_allocator
-            .insert(UsbBusAllocator::new(usb_bus)); // Make usb_allocator 'static
+        let gpioa = ctx.device.GPIOA.split();
+        let mut gpiob = ctx.device.GPIOB.split();
+        let mut gpioc = ctx.device.GPIOC.split();
+
+        let usb = Peripheral {
+            usb: ctx.device.USB,
+            pin_dm: gpioa.pa11,
+            pin_dp: gpioa.pa12,
+        };
+
+        let usb_bus = ctx.local.usb_bus.insert(UsbBus::new(usb));
 
         // End Hardware initialisation
 
-        let (usb_device, serial_port, hid_device) = init_usb(usb_allocator);
+        let (usb_device, serial_port, hid_device) = init_usb(usb_bus);
 
         // Input
 
         let inputs = Inputs {
-            buttons: (
-                pins.pb09.into(),
-                pins.pa04.into(),
-                pins.pa05.into(),
-                pins.pb02.into(),
-            ),
-            encoder_button: pins.pa11.into(),
-            encoder_a: pins.pa10.into(),
-            encoder_b: pins.pa14.into(),
+            encoder_button: gpiob.pb5.into_pull_up_input(&mut gpiob.crl),
+            encoder_a: gpiob.pb9.into_pull_up_input(&mut gpiob.crh),
+            encoder_b: gpiob.pb8.into_pull_up_input(&mut gpiob.crh),
         };
 
         let inputs_state = InputsState {
@@ -142,20 +125,18 @@ mod app {
 
         let shared = Shared {
             microseconds: 0,
+            usb_device,
             serial_port,
             hid_device,
         };
 
         let mut local = Local {
-            timer: tc3,
-            usb_device,
             inputs,
             inputs_state,
-            leds: (pins.pa27.into(), pins.pb03.into()),
+            led: gpioc.pc13.into_push_pull_output(&mut gpioc.crh),
         };
 
-        local.leds.0.set_high().unwrap();
-        local.leds.1.set_high().unwrap();
+        local.led.set_high();
 
         // TODO see if we can do this on a periodic timer instead,
         // so the task execution isn't fallible
@@ -164,11 +145,11 @@ mod app {
         (shared, local, init::Monotonics(rtc))
     }
 
-    #[task(shared = [serial_port, hid_device, microseconds], local = [inputs, inputs_state, leds])]
+    #[task(shared = [serial_port, hid_device, microseconds], local = [inputs, inputs_state, led])]
     fn tick(ctx: tick::Context) {
         let pins = ctx.local.inputs;
         let state = ctx.local.inputs_state;
-        let leds = ctx.local.leds;
+        let led = ctx.local.led;
 
         let mut serial_port = ctx.shared.serial_port;
         let mut microseconds = ctx.shared.microseconds;
@@ -177,24 +158,18 @@ mod app {
 
         // Read inputs and update state
 
-        state
-            .encoder_button
-            .update(pins.encoder_button.is_low().unwrap());
-        let (a, b) = (
-            pins.encoder_a.is_low().unwrap(),
-            pins.encoder_b.is_low().unwrap(),
-        );
+        state.encoder_button.update(pins.encoder_button.is_low());
+        let (a, b) = (pins.encoder_a.is_low(), pins.encoder_b.is_low());
         state.encoder.update(a, b);
 
-        state.buttons[0].update(pins.buttons.0.is_low().unwrap());
-        state.buttons[1].update(pins.buttons.1.is_low().unwrap());
-        state.buttons[2].update(pins.buttons.2.is_low().unwrap());
-        state.buttons[3].update(pins.buttons.3.is_low().unwrap());
+        // state.buttons[0].update(pins.buttons.0.is_low().unwrap());
+        // state.buttons[1].update(pins.buttons.1.is_low().unwrap());
+        // state.buttons[2].update(pins.buttons.2.is_low().unwrap());
+        // state.buttons[3].update(pins.buttons.3.is_low().unwrap());
 
-        // reset LEDs
+        // blink LED
 
-        leds.0.set_high().unwrap();
-        leds.1.set_high().unwrap();
+        led.toggle();
 
         // Report state as HID joystick
 
@@ -209,19 +184,6 @@ mod app {
         ];
 
         // Debug LEDs
-
-        if buttons[4] {
-            leds.0.set_low().unwrap();
-        }
-
-        if buttons[5] {
-            leds.1.set_low().unwrap();
-        }
-
-        if buttons[0] || buttons[1] || buttons[2] || buttons[3] || buttons[6] {
-            leds.0.set_low().unwrap();
-            leds.1.set_low().unwrap();
-        }
 
         let mut report = JoystickReport::new();
 
@@ -243,17 +205,17 @@ mod app {
 
         // TODO see if we can do this on a periodic timer instead,
         // so the task execution isn't fallible
-        tick::spawn_after(Duration::micros(500)).unwrap();
+        tick::spawn_after(Duration::<u64, 1, 1000>::millis(500)).unwrap();
     }
 
-    #[task(binds = USB, priority = 2, local = [usb_device], shared = [serial_port, hid_device])]
-    fn usb_poll(ctx: usb_poll::Context) {
-        let usb_device = ctx.local.usb_device;
+    #[task(binds = USB_HP_CAN_TX, priority = 2, shared = [usb_device, serial_port, hid_device])]
+    fn usb_tx(ctx: usb_tx::Context) {
+        let usb_device = ctx.shared.usb_device;
         let serial_port = ctx.shared.serial_port;
         let hid_device = ctx.shared.hid_device;
 
-        (serial_port, hid_device).lock(|serial, hid| {
-            usb_device.poll(&mut [serial, hid]);
+        (usb_device, serial_port, hid_device).lock(|device, serial, hid| {
+            device.poll(&mut [serial, hid]);
 
             // Prevent writes into the serial port locking everthing up
             // I am honestly not sure why this happens.
@@ -262,21 +224,37 @@ mod app {
         });
     }
 
-    #[task(binds = TC3, priority = 2, shared = [microseconds], local = [timer])]
-    fn timer_tick(ctx: timer_tick::Context) {
-        if ctx.local.timer.wait().is_ok() {
-            let mut ms = ctx.shared.microseconds;
+    #[task(binds = USB_LP_CAN_RX0, priority = 2, shared = [usb_device, serial_port, hid_device])]
+    fn usb_rx0(ctx: usb_rx0::Context) {
+        let usb_device = ctx.shared.usb_device;
+        let serial_port = ctx.shared.serial_port;
+        let hid_device = ctx.shared.hid_device;
 
-            ms.lock(|ms| *ms += 1);
-        }
+        (usb_device, serial_port, hid_device).lock(|device, serial, hid| {
+            device.poll(&mut [serial, hid]);
+
+            // Prevent writes into the serial port locking everthing up
+            // I am honestly not sure why this happens.
+            let mut buf = [0u8; 64];
+            serial.read(&mut buf).ok();
+        });
     }
 
+    // #[task(binds = TC3, priority = 2, shared = [microseconds], local = [timer])]
+    // fn timer_tick(ctx: timer_tick::Context) {
+    //     if ctx.local.timer.wait().is_ok() {
+    //         let mut ms = ctx.shared.microseconds;
+
+    //         ms.lock(|ms| *ms += 1);
+    //     }
+    // }
+
     fn init_usb<'a>(
-        allocator: &'a UsbBusAllocator<UsbBus>,
+        allocator: &'a UsbBusAllocator<UsbBus<Peripheral>>,
     ) -> (
-        UsbDevice<'a, UsbBus>,
-        SerialPort<'a, UsbBus>,
-        HIDClass<'a, UsbBus>,
+        UsbDevice<'a, UsbBus<Peripheral>>,
+        SerialPort<'a, UsbBus<Peripheral>>,
+        HIDClass<'a, UsbBus<Peripheral>>,
     ) {
         let serial = SerialPort::new(allocator);
         let hid_device = HIDClass::new_ep_in(allocator, JoystickReport::desc(), 10);

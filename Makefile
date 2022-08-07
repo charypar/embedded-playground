@@ -6,7 +6,7 @@ blinky:
 
 .PHONY: spinny
 spinny:
-	cd spinny && cargo build --release
+	cd spinny/software && cargo build --release
 
 .PHONY: blinky
 flash-blinky: blinky
@@ -14,4 +14,4 @@ flash-blinky: blinky
 
 .PHONY: flash-spinny
 flash-spinny: spinny
-	openocd -f debug-config/openocd.cfg -c "program spinny/target/thumbv6m-none-eabi/release/spinny verify reset exit"
+	openocd -f debug-config/openocd.cfg -c "program spinny/software/target/thumbv7m-none-eabi/release/spinny verify reset exit"
