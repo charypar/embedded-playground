@@ -28,10 +28,10 @@
       (xy -1.27 -2.56)
       (xy 1.28 -2.56)
     ) (layer "F.Fab") (width 0.05) (fill none) (tstamp 9f7ebdbd-7042-4071-80c3-7ab04fac5b31))
-  (pad "1" smd roundrect (at -3 1.875) (size 1 0.75) (layers "F.Cu" "F.Paste" "F.Mask") (roundrect_rratio 0.25) (tstamp 067b3699-1a46-41cc-9c7c-3cbbde83e2fb))
   (pad "1" smd roundrect (at -3 -1.875) (size 1 0.75) (layers "F.Cu" "F.Paste" "F.Mask") (roundrect_rratio 0.25) (tstamp 5b77bfad-fdd5-4e7d-86ed-ad21fd1ee4e0))
+  (pad "1" smd roundrect (at 3 -1.875) (size 1 0.75) (layers "F.Cu" "F.Paste" "F.Mask") (roundrect_rratio 0.25) (tstamp 88071c39-7478-4d42-a0c9-ea227d61f16f))
+  (pad "2" smd roundrect (at -3 1.875) (size 1 0.75) (layers "F.Cu" "F.Paste" "F.Mask") (roundrect_rratio 0.25) (tstamp 067b3699-1a46-41cc-9c7c-3cbbde83e2fb))
   (pad "2" smd roundrect (at 3 1.875) (size 1 0.75) (layers "F.Cu" "F.Paste" "F.Mask") (roundrect_rratio 0.25) (tstamp 638492c1-39c4-4e69-a3a1-232b324e5b21))
-  (pad "2" smd roundrect (at 3 -1.875) (size 1 0.75) (layers "F.Cu" "F.Paste" "F.Mask") (roundrect_rratio 0.25) (tstamp 88071c39-7478-4d42-a0c9-ea227d61f16f))
   (model "/Users/viktor/Downloads/TS-1187A-B-A-B--3DModel-STEP-56544.STEP"
     (offset (xyz 0 0 0))
     (scale (xyz 1 1 1))

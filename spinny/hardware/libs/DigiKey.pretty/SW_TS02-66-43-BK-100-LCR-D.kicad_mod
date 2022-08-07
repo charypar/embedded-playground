@@ -25,9 +25,9 @@
   (fp_line (start 3 -3) (end 3 3) (layer "F.Fab") (width 0.127) (tstamp f5f05fac-8b73-49ca-b75f-f55bcc5a81fd))
   (fp_circle (center -3.25 -4.004) (end -3.15 -4.004) (layer "F.Fab") (width 0.2) (fill none) (tstamp 0acb7b97-c6e6-44df-ad0d-230a70aa8726))
   (pad "1" thru_hole rect (at -3.25 -2.25) (size 1.508 1.508) (drill 1) (layers *.Cu *.Mask) (tstamp 2cbc974e-e9a8-4982-b0c0-af5d0c57669a))
-  (pad "1" thru_hole circle (at -3.25 2.25) (size 1.508 1.508) (drill 1) (layers *.Cu *.Mask) (tstamp 839513d1-f12b-48ae-92f2-d199bce11181))
+  (pad "1" thru_hole circle (at 3.25 -2.25) (size 1.508 1.508) (drill 1) (layers *.Cu *.Mask) (tstamp e7cc63fe-687a-4121-9439-ff9d1ac38731))
   (pad "2" thru_hole circle (at 3.25 2.25) (size 1.508 1.508) (drill 1) (layers *.Cu *.Mask) (tstamp 69bde10d-2bcd-44c3-8574-3b0fc8606272))
-  (pad "2" thru_hole circle (at 3.25 -2.25) (size 1.508 1.508) (drill 1) (layers *.Cu *.Mask) (tstamp e7cc63fe-687a-4121-9439-ff9d1ac38731))
+  (pad "2" thru_hole circle (at -3.25 2.25) (size 1.508 1.508) (drill 1) (layers *.Cu *.Mask) (tstamp 839513d1-f12b-48ae-92f2-d199bce11181))
   (model "/Users/viktor/Downloads/CUI_DEVICES_TS02-66-43-BK-100-LCR-D/CUI_DEVICES_TS02-66-43-BK-100-LCR-D.step"
     (offset (xyz 0 0 0))
     (scale (xyz 1 1 1))
