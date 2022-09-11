@@ -12,214 +12,6 @@
   )
 
   (lib_symbols
-    (symbol "+3.3V_1" (power) (pin_names (offset 0)) (in_bom yes) (on_board yes)
-      (property "Reference" "#PWR" (id 0) (at 0 -3.81 0)
-        (effects (font (size 1.27 1.27)) hide)
-      )
-      (property "Value" "+3.3V_1" (id 1) (at 0 3.556 0)
-        (effects (font (size 1.27 1.27)))
-      )
-      (property "Footprint" "" (id 2) (at 0 0 0)
-        (effects (font (size 1.27 1.27)) hide)
-      )
-      (property "Datasheet" "" (id 3) (at 0 0 0)
-        (effects (font (size 1.27 1.27)) hide)
-      )
-      (property "ki_keywords" "power-flag" (id 4) (at 0 0 0)
-        (effects (font (size 1.27 1.27)) hide)
-      )
-      (property "ki_description" "Power symbol creates a global label with name \"+3.3V\"" (id 5) (at 0 0 0)
-        (effects (font (size 1.27 1.27)) hide)
-      )
-      (symbol "+3.3V_1_0_1"
-        (polyline
-          (pts
-            (xy -0.762 1.27)
-            (xy 0 2.54)
-          )
-          (stroke (width 0) (type default) (color 0 0 0 0))
-          (fill (type none))
-        )
-        (polyline
-          (pts
-            (xy 0 0)
-            (xy 0 2.54)
-          )
-          (stroke (width 0) (type default) (color 0 0 0 0))
-          (fill (type none))
-        )
-        (polyline
-          (pts
-            (xy 0 2.54)
-            (xy 0.762 1.27)
-          )
-          (stroke (width 0) (type default) (color 0 0 0 0))
-          (fill (type none))
-        )
-      )
-      (symbol "+3.3V_1_1_1"
-        (pin power_in line (at 0 0 90) (length 0) hide
-          (name "+3.3V" (effects (font (size 1.27 1.27))))
-          (number "1" (effects (font (size 1.27 1.27))))
-        )
-      )
-    )
-    (symbol "+3.3V_2" (power) (pin_names (offset 0)) (in_bom yes) (on_board yes)
-      (property "Reference" "#PWR" (id 0) (at 0 -3.81 0)
-        (effects (font (size 1.27 1.27)) hide)
-      )
-      (property "Value" "+3.3V_2" (id 1) (at 0 3.556 0)
-        (effects (font (size 1.27 1.27)))
-      )
-      (property "Footprint" "" (id 2) (at 0 0 0)
-        (effects (font (size 1.27 1.27)) hide)
-      )
-      (property "Datasheet" "" (id 3) (at 0 0 0)
-        (effects (font (size 1.27 1.27)) hide)
-      )
-      (property "ki_keywords" "power-flag" (id 4) (at 0 0 0)
-        (effects (font (size 1.27 1.27)) hide)
-      )
-      (property "ki_description" "Power symbol creates a global label with name \"+3.3V\"" (id 5) (at 0 0 0)
-        (effects (font (size 1.27 1.27)) hide)
-      )
-      (symbol "+3.3V_2_0_1"
-        (polyline
-          (pts
-            (xy -0.762 1.27)
-            (xy 0 2.54)
-          )
-          (stroke (width 0) (type default) (color 0 0 0 0))
-          (fill (type none))
-        )
-        (polyline
-          (pts
-            (xy 0 0)
-            (xy 0 2.54)
-          )
-          (stroke (width 0) (type default) (color 0 0 0 0))
-          (fill (type none))
-        )
-        (polyline
-          (pts
-            (xy 0 2.54)
-            (xy 0.762 1.27)
-          )
-          (stroke (width 0) (type default) (color 0 0 0 0))
-          (fill (type none))
-        )
-      )
-      (symbol "+3.3V_2_1_1"
-        (pin power_in line (at 0 0 90) (length 0) hide
-          (name "+3.3V" (effects (font (size 1.27 1.27))))
-          (number "1" (effects (font (size 1.27 1.27))))
-        )
-      )
-    )
-    (symbol "+3.3V_3" (power) (pin_names (offset 0)) (in_bom yes) (on_board yes)
-      (property "Reference" "#PWR" (id 0) (at 0 -3.81 0)
-        (effects (font (size 1.27 1.27)) hide)
-      )
-      (property "Value" "+3.3V_3" (id 1) (at 0 3.556 0)
-        (effects (font (size 1.27 1.27)))
-      )
-      (property "Footprint" "" (id 2) (at 0 0 0)
-        (effects (font (size 1.27 1.27)) hide)
-      )
-      (property "Datasheet" "" (id 3) (at 0 0 0)
-        (effects (font (size 1.27 1.27)) hide)
-      )
-      (property "ki_keywords" "power-flag" (id 4) (at 0 0 0)
-        (effects (font (size 1.27 1.27)) hide)
-      )
-      (property "ki_description" "Power symbol creates a global label with name \"+3.3V\"" (id 5) (at 0 0 0)
-        (effects (font (size 1.27 1.27)) hide)
-      )
-      (symbol "+3.3V_3_0_1"
-        (polyline
-          (pts
-            (xy -0.762 1.27)
-            (xy 0 2.54)
-          )
-          (stroke (width 0) (type default) (color 0 0 0 0))
-          (fill (type none))
-        )
-        (polyline
-          (pts
-            (xy 0 0)
-            (xy 0 2.54)
-          )
-          (stroke (width 0) (type default) (color 0 0 0 0))
-          (fill (type none))
-        )
-        (polyline
-          (pts
-            (xy 0 2.54)
-            (xy 0.762 1.27)
-          )
-          (stroke (width 0) (type default) (color 0 0 0 0))
-          (fill (type none))
-        )
-      )
-      (symbol "+3.3V_3_1_1"
-        (pin power_in line (at 0 0 90) (length 0) hide
-          (name "+3.3V" (effects (font (size 1.27 1.27))))
-          (number "1" (effects (font (size 1.27 1.27))))
-        )
-      )
-    )
-    (symbol "+3.3V_4" (power) (pin_names (offset 0)) (in_bom yes) (on_board yes)
-      (property "Reference" "#PWR" (id 0) (at 0 -3.81 0)
-        (effects (font (size 1.27 1.27)) hide)
-      )
-      (property "Value" "+3.3V_4" (id 1) (at 0 3.556 0)
-        (effects (font (size 1.27 1.27)))
-      )
-      (property "Footprint" "" (id 2) (at 0 0 0)
-        (effects (font (size 1.27 1.27)) hide)
-      )
-      (property "Datasheet" "" (id 3) (at 0 0 0)
-        (effects (font (size 1.27 1.27)) hide)
-      )
-      (property "ki_keywords" "power-flag" (id 4) (at 0 0 0)
-        (effects (font (size 1.27 1.27)) hide)
-      )
-      (property "ki_description" "Power symbol creates a global label with name \"+3.3V\"" (id 5) (at 0 0 0)
-        (effects (font (size 1.27 1.27)) hide)
-      )
-      (symbol "+3.3V_4_0_1"
-        (polyline
-          (pts
-            (xy -0.762 1.27)
-            (xy 0 2.54)
-          )
-          (stroke (width 0) (type default) (color 0 0 0 0))
-          (fill (type none))
-        )
-        (polyline
-          (pts
-            (xy 0 0)
-            (xy 0 2.54)
-          )
-          (stroke (width 0) (type default) (color 0 0 0 0))
-          (fill (type none))
-        )
-        (polyline
-          (pts
-            (xy 0 2.54)
-            (xy 0.762 1.27)
-          )
-          (stroke (width 0) (type default) (color 0 0 0 0))
-          (fill (type none))
-        )
-      )
-      (symbol "+3.3V_4_1_1"
-        (pin power_in line (at 0 0 90) (length 0) hide
-          (name "+3.3V" (effects (font (size 1.27 1.27))))
-          (number "1" (effects (font (size 1.27 1.27))))
-        )
-      )
-    )
     (symbol "Connector:USB_C_Receptacle_USB2.0" (pin_names (offset 1.016)) (in_bom yes) (on_board yes)
       (property "Reference" "J" (id 0) (at -10.16 19.05 0)
         (effects (font (size 1.27 1.27)) (justify left))
@@ -1791,7 +1583,6 @@
     )
   )
 
-
   (junction (at 36.83 178.435) (diameter 0) (color 0 0 0 0)
     (uuid 0388b81b-7bfb-4a23-9444-5dbf72eb6a1d)
   )
@@ -3018,7 +2809,7 @@
     (pin "2" (uuid db09782f-8a62-40f8-80d9-a534ac3236b1))
   )
 
-  (symbol (lib_name "+3.3V_1") (lib_id "power:+3.3V") (at 183.261 34.29 0) (unit 1)
+  (symbol (lib_id "power:+3.3V") (at 183.261 34.29 0) (unit 1)
     (in_bom yes) (on_board yes)
     (uuid 11b2be98-3538-42b5-bf34-7d193e1b16c6)
     (property "Reference" "#PWR020" (id 0) (at 183.261 38.1 0)
@@ -3091,7 +2882,7 @@
     (pin "1" (uuid 5f10f906-e980-4eaf-92f9-b2311cbfb170))
   )
 
-  (symbol (lib_name "+3.3V_3") (lib_id "power:+3.3V") (at 241.935 33.655 0) (unit 1)
+  (symbol (lib_id "power:+3.3V") (at 241.935 33.655 0) (unit 1)
     (in_bom yes) (on_board yes)
     (uuid 204e4d04-b185-492c-b039-ee52528d6b89)
     (property "Reference" "#PWR018" (id 0) (at 241.935 37.465 0)
@@ -3231,7 +3022,7 @@
     (pin "1" (uuid 2c5574e6-3b04-425b-936f-ee3f6cba3a1b))
   )
 
-  (symbol (lib_name "+3.3V_4") (lib_id "power:+3.3V") (at 230.505 73.025 0) (unit 1)
+  (symbol (lib_id "power:+3.3V") (at 230.505 73.025 0) (unit 1)
     (in_bom yes) (on_board yes)
     (uuid 3d4af725-3238-4c9c-b5f8-3cd97340011d)
     (property "Reference" "#PWR023" (id 0) (at 230.505 76.835 0)
@@ -3276,7 +3067,7 @@
   (symbol (lib_id "power:+3.3V") (at 106.68 136.525 0) (unit 1)
     (in_bom yes) (on_board yes)
     (uuid 440faa9d-2e38-4111-bf20-3f454b02a07c)
-    (property "Reference" "#PWR?" (id 0) (at 106.68 140.335 0)
+    (property "Reference" "#PWR0101" (id 0) (at 106.68 140.335 0)
       (effects (font (size 1.27 1.27)) hide)
     )
     (property "Value" "+3.3V" (id 1) (at 106.68 132.08 0))
@@ -4091,7 +3882,7 @@
     (pin "1" (uuid af224a07-210b-4533-9681-bbf4547f6fb2))
   )
 
-  (symbol (lib_name "+3.3V_2") (lib_id "power:+3.3V") (at 257.175 128.27 0) (unit 1)
+  (symbol (lib_id "power:+3.3V") (at 257.175 128.27 0) (unit 1)
     (in_bom yes) (on_board yes)
     (uuid ff6f2a53-beaa-4aa7-bd38-c6820d8c6210)
     (property "Reference" "#PWR028" (id 0) (at 257.175 132.08 0)
@@ -4208,14 +3999,14 @@
     (path "/37d1c207-7cc1-41d3-936d-68876ff99053"
       (reference "#PWR032") (unit 1) (value "GND") (footprint "")
     )
+    (path "/440faa9d-2e38-4111-bf20-3f454b02a07c"
+      (reference "#PWR0101") (unit 1) (value "+3.3V") (footprint "")
+    )
     (path "/6f02f72d-1106-492e-b46f-0b0932d1a6f9"
       (reference "#PWR0102") (unit 1) (value "+3.3V") (footprint "")
     )
     (path "/4ef68e0d-b87a-4a39-a35a-014f1cf24e5f"
       (reference "#PWR0103") (unit 1) (value "GND") (footprint "")
-    )
-    (path "/440faa9d-2e38-4111-bf20-3f454b02a07c"
-      (reference "#PWR?") (unit 1) (value "+3.3V") (footprint "")
     )
     (path "/c3499029-1c46-4956-851b-5e19b452e7a0"
       (reference "C1") (unit 1) (value "1u") (footprint "Capacitor_SMD:C_0402_1005Metric")
