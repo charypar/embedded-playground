@@ -1,4 +1,3 @@
-#![deny(unsafe_code)]
 #![no_main]
 #![no_std]
 
@@ -17,6 +16,9 @@ mod app {
     use hal::gpio::{Input, Output, PullUp, PushPull};
     use hal::usb::{Peripheral, UsbBus};
 
+    use hal::pac;
+    use pac::{BKP, PWR, RCC, SCB};
+
     use systick_monotonic::{fugit::Duration, Systick};
 
     use usb_device::class_prelude::UsbBusAllocator;
@@ -29,6 +31,8 @@ mod app {
 
     use cross::debounce::Debounced;
     use cross::rotary::Rotary;
+
+    const RESET_TO_BOOTLOADER: u32 = 0x4F42;
 
     #[monotonic(binds = SysTick, default = true)]
     type RtcMonotonic = Systick<1000>;
@@ -51,6 +55,7 @@ mod app {
         usb_device: UsbDevice<'static, UsbBus<Peripheral>>,
         serial_port: SerialPort<'static, UsbBus<Peripheral>>,
         hid_device: HIDClass<'static, UsbBus<Peripheral>>,
+        bkp: BKP,
     }
 
     #[local]
@@ -65,13 +70,19 @@ mod app {
         // Begin hardware initialisation
         // FIXME pull all of this out
 
+        let rcc = ctx.device.RCC;
+        let pwr = ctx.device.PWR;
+        let flash = ctx.device.FLASH;
+
+        enable_write_to_bkp(&rcc, &pwr);
+
         // Configure clocks
-        let mut flash = ctx.device.FLASH.constrain();
-        let rcc = ctx.device.RCC.constrain();
+        let rcc = rcc.constrain();
+        let mut acr = flash.constrain().acr;
         rcc.cfgr
             .use_hse(8.MHz()) // External crystal is on 8 Mhz
             .sysclk(72.MHz()) // Clock system on 72 Mhz, used also by USB, divided by 1.5 to 48 MHz
-            .freeze(&mut flash.acr);
+            .freeze(&mut acr);
 
         // Set up a periodic timer used to measure elapsed time for tracking duration etc
         // let mut tc3 = TimerCounter3::tc3_(&timing_clock, peri.TC3, &mut peri.PM);
@@ -130,6 +141,7 @@ mod app {
             usb_device,
             serial_port,
             hid_device,
+            bkp: ctx.device.BKP,
         };
 
         let mut local = Local {
@@ -153,10 +165,10 @@ mod app {
         let state = ctx.local.inputs_state;
         let led = ctx.local.led;
 
-        let mut serial_port = ctx.shared.serial_port;
-        let mut microseconds = ctx.shared.microseconds;
+        // let mut serial_port = ctx.shared.serial_port;
+        // let mut microseconds = ctx.shared.microseconds;
 
-        let start = microseconds.lock(|ms| *ms);
+        // let start = microseconds.lock(|ms| *ms);
 
         // Read inputs and update state
 
@@ -198,49 +210,94 @@ mod app {
 
         hid_device.lock(|hid| hid.push_input(&report).ok());
 
-        let end = microseconds.lock(|ms| *ms);
+        // let end = microseconds.lock(|ms| *ms);
 
-        let mut buf = [0u8; 64];
-        let msg: &str =
-            stackfmt::fmt_truncate(&mut buf, format_args!("\rMicros = {}\r", end - start));
+        // let mut buf = [0u8; 64];
+        // let msg: &str =
+        //     stackfmt::fmt_truncate(&mut buf, format_args!("\rMicros = {}\r", end - start));
 
-        serial_port.lock(|p| p.write(msg.as_bytes())).ok();
+        // serial_port.lock(|p| p.write(msg.as_bytes())).ok();
 
         // TODO see if we can do this on a periodic timer instead,
         // so the task execution isn't fallible
         tick::spawn_after(Duration::<u64, 1, 1000>::micros(500)).unwrap();
     }
 
-    #[task(binds = USB_HP_CAN_TX, priority = 2, shared = [usb_device, serial_port, hid_device])]
+    #[task(binds = USB_HP_CAN_TX, priority = 2, shared = [usb_device, serial_port, hid_device, bkp])]
     fn usb_tx(ctx: usb_tx::Context) {
         let usb_device = ctx.shared.usb_device;
         let serial_port = ctx.shared.serial_port;
         let hid_device = ctx.shared.hid_device;
+        let bkp = ctx.shared.bkp;
 
-        (usb_device, serial_port, hid_device).lock(|device, serial, hid| {
-            device.poll(&mut [serial, hid]);
-
-            // Prevent writes into the serial port locking everthing up
-            // I am honestly not sure why this happens.
-            let mut buf = [0u8; 64];
-            serial.read(&mut buf).ok();
+        (usb_device, serial_port, hid_device, bkp).lock(|device, serial, hid, bkp| {
+            usb_poll(device, serial, hid, bkp);
         });
     }
 
-    #[task(binds = USB_LP_CAN_RX0, priority = 2, shared = [usb_device, serial_port, hid_device])]
+    #[task(binds = USB_LP_CAN_RX0, priority = 2, shared = [usb_device, serial_port, hid_device, bkp])]
     fn usb_rx0(ctx: usb_rx0::Context) {
         let usb_device = ctx.shared.usb_device;
         let serial_port = ctx.shared.serial_port;
         let hid_device = ctx.shared.hid_device;
+        let bkp = ctx.shared.bkp;
 
-        (usb_device, serial_port, hid_device).lock(|device, serial, hid| {
-            device.poll(&mut [serial, hid]);
-
-            // Prevent writes into the serial port locking everthing up
-            // I am honestly not sure why this happens.
-            let mut buf = [0u8; 64];
-            serial.read(&mut buf).ok();
+        (usb_device, serial_port, hid_device, bkp).lock(|device, serial, hid, bkp| {
+            usb_poll(device, serial, hid, bkp);
         });
+    }
+
+    fn usb_poll(
+        device: &mut UsbDevice<UsbBus<Peripheral>>,
+        serial: &mut SerialPort<UsbBus<Peripheral>>,
+        hid: &mut HIDClass<UsbBus<Peripheral>>,
+        bkp: &mut BKP,
+    ) {
+        device.poll(&mut [serial, hid]);
+
+        // Prevent writes into the serial port locking everthing up
+        // I am honestly not sure why this happens.
+        let mut buf = [0u8; 1];
+        match serial.read(&mut buf) {
+            Ok(0) => (),
+            Ok(count) => {
+                // TODO better reset command
+                if buf[0] == b'R' {
+                    if signal_bootloader(bkp) {
+                        serial.write(b"resetting to bootloader!").ok();
+
+                        SCB::sys_reset();
+                    } else {
+                        serial.write(b"reset failed").ok();
+                    }
+                } else {
+                    serial.write(&buf[0..count]).ok();
+                }
+            }
+            Err(_) => (),
+        }
+    }
+
+    // Enable writing into the BKP registers for software reset to bootloader
+    fn enable_write_to_bkp(rcc: &RCC, pwr: &PWR) {
+        // From stm32 reference manual, pg 81:
+        // 1. enable the power and backup interface clocks
+        // 2. set the DBP bit in the Power control register
+
+        rcc.apb1enr.write(|w| w.pwren().set_bit().bkpen().set_bit());
+        pwr.cr.write(|w| w.dbp().set_bit());
+    }
+
+    fn signal_bootloader(bkp: &mut BKP) -> bool {
+        // from dapboot documentation/source code
+        // https://github.com/devanlai/dapboot#switching-to-the-bootloader
+        // https://github.com/devanlai/dapboot/blob/master/src/stm32f103/backup.c#L25
+        //
+        // 3. write the bootloader signal
+        bkp.dr[0].write(|w| unsafe { w.bits(RESET_TO_BOOTLOADER) });
+
+        // check the write succeeded
+        return bkp.dr[0].read().bits() == RESET_TO_BOOTLOADER;
     }
 
     // #[task(binds = TC3, priority = 2, shared = [microseconds], local = [timer])]
