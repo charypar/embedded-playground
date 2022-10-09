@@ -10,12 +10,12 @@ spinny:
 
 .PHONY: bootloader
 bootloader:
-	screen -dmS spinny /dev/tty.usbmodem14201 9600
+	screen -dmS spinny /dev/tty.usbmodem1101 9600
 	screen -S spinny -p 0 -X stuff 'R'
-	sleep 0.2
+	sleep 0.3
 
 .PHONY: dfu-spinny
-dfu-spinny:
+dfu-spinny: spinny
 	cd spinny/software/target/thumbv7m-none-eabi/release && \
 		arm-none-eabi-objcopy -O binary spinny spinny.bin && \
 		dfu-util -D spinny.bin
