@@ -10,15 +10,14 @@ use usbd_hid::descriptor::generator_prelude::*;
         }
     }
 )]
+#[derive(PartialEq)]
 pub struct JoystickReport {
     pub buttons: u8,
 }
 
 impl JoystickReport {
     pub fn new() -> Self {
-        Self {
-            buttons: 0,
-        }
+        Self { buttons: 0 }
     }
 
     pub fn set_button(&mut self, n: usize, value: bool) {

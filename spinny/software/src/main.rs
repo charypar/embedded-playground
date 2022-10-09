@@ -11,7 +11,7 @@ mod app {
     use hal::prelude::*;
     use stm32f1xx_hal as hal;
 
-    use hal::gpio::gpiob::{PB5, PB8, PB9};
+    use hal::gpio::gpiob::{PB3, PB4, PB5, PB6, PB7, PB8, PB9};
     use hal::gpio::gpioc::PC13;
     use hal::gpio::{Input, Output, PullUp, PushPull};
     use hal::usb::{Peripheral, UsbBus};
@@ -44,6 +44,12 @@ mod app {
     }
 
     pub struct Inputs {
+        buttons: (
+            PB3<Input<PullUp>>,
+            PB4<Input<PullUp>>,
+            PB6<Input<PullUp>>,
+            PB7<Input<PullUp>>,
+        ),
         encoder_button: PB5<Input<PullUp>>,
         encoder_a: PB9<Input<PullUp>>,
         encoder_b: PB8<Input<PullUp>>,
@@ -63,6 +69,7 @@ mod app {
         inputs: Inputs,
         inputs_state: InputsState,
         led: PC13<Output<PushPull>>,
+        last_report: JoystickReport,
     }
 
     #[init(local = [usb_bus: Option<UsbBusAllocator<UsbBus<Peripheral>>> = None])]
@@ -73,6 +80,7 @@ mod app {
         let rcc = ctx.device.RCC;
         let pwr = ctx.device.PWR;
         let flash = ctx.device.FLASH;
+        let afio = ctx.device.AFIO;
 
         enable_write_to_bkp(&rcc, &pwr);
 
@@ -83,12 +91,6 @@ mod app {
             .use_hse(8.MHz()) // External crystal is on 8 Mhz
             .sysclk(72.MHz()) // Clock system on 72 Mhz, used also by USB, divided by 1.5 to 48 MHz
             .freeze(&mut acr);
-
-        // Set up a periodic timer used to measure elapsed time for tracking duration etc
-        // let mut tc3 = TimerCounter3::tc3_(&timing_clock, peri.TC3, &mut peri.PM);
-
-        // tc3.start(1.mhz());
-        // tc3.enable_interrupt();
 
         // Set up the real-time clock, using the 32K oscillator clock
         // TODO this can be clocked by a subdivided clock for lower power consumption (probably)
@@ -117,7 +119,19 @@ mod app {
 
         // Input
 
+        // Disable JTAG to allow access to PB3 and PB4
+        let (_, pb3, pb4) = afio
+            .constrain()
+            .mapr
+            .disable_jtag(gpioa.pa15, gpiob.pb3, gpiob.pb4);
+
         let inputs = Inputs {
+            buttons: (
+                pb3.into_pull_up_input(&mut gpiob.crl),
+                pb4.into_pull_up_input(&mut gpiob.crl),
+                gpiob.pb6.into_pull_up_input(&mut gpiob.crl),
+                gpiob.pb7.into_pull_up_input(&mut gpiob.crl),
+            ),
             encoder_button: gpiob.pb5.into_pull_up_input(&mut gpiob.crl),
             encoder_a: gpiob.pb9.into_pull_up_input(&mut gpiob.crh),
             encoder_b: gpiob.pb8.into_pull_up_input(&mut gpiob.crh),
@@ -130,7 +144,7 @@ mod app {
                 Debounced::new(false, 20),
                 Debounced::new(false, 20),
             ],
-            encoder: Rotary::new(80),
+            encoder: Rotary::new(20),
             encoder_button: Debounced::new(false, 20),
         };
 
@@ -148,6 +162,7 @@ mod app {
             inputs,
             inputs_state,
             led: gpioc.pc13.into_push_pull_output(&mut gpioc.crh),
+            last_report: JoystickReport::new(),
         };
 
         local.led.set_high();
@@ -159,16 +174,12 @@ mod app {
         (shared, local, init::Monotonics(rtc))
     }
 
-    #[task(shared = [serial_port, hid_device, microseconds], local = [inputs, inputs_state, led])]
+    #[task(shared = [serial_port, hid_device, microseconds], local = [inputs, inputs_state, led, last_report])]
     fn tick(ctx: tick::Context) {
         let pins = ctx.local.inputs;
         let state = ctx.local.inputs_state;
         let led = ctx.local.led;
-
-        // let mut serial_port = ctx.shared.serial_port;
-        // let mut microseconds = ctx.shared.microseconds;
-
-        // let start = microseconds.lock(|ms| *ms);
+        let last_report = ctx.local.last_report;
 
         // Read inputs and update state
 
@@ -176,10 +187,10 @@ mod app {
         let (a, b) = (pins.encoder_a.is_low(), pins.encoder_b.is_low());
         state.encoder.update(a, b);
 
-        // state.buttons[0].update(pins.buttons.0.is_low().unwrap());
-        // state.buttons[1].update(pins.buttons.1.is_low().unwrap());
-        // state.buttons[2].update(pins.buttons.2.is_low().unwrap());
-        // state.buttons[3].update(pins.buttons.3.is_low().unwrap());
+        state.buttons[0].update(pins.buttons.0.is_low());
+        state.buttons[1].update(pins.buttons.1.is_low());
+        state.buttons[2].update(pins.buttons.2.is_low());
+        state.buttons[3].update(pins.buttons.3.is_low());
 
         led.set_low();
 
@@ -196,7 +207,7 @@ mod app {
         ];
 
         // Debug LEDs
-        if buttons[4] || buttons[5] || buttons[6] {
+        if buttons.iter().any(|b| *b) {
             led.set_high()
         }
 
@@ -208,19 +219,14 @@ mod app {
 
         let mut hid_device = ctx.shared.hid_device;
 
-        hid_device.lock(|hid| hid.push_input(&report).ok());
-
-        // let end = microseconds.lock(|ms| *ms);
-
-        // let mut buf = [0u8; 64];
-        // let msg: &str =
-        //     stackfmt::fmt_truncate(&mut buf, format_args!("\rMicros = {}\r", end - start));
-
-        // serial_port.lock(|p| p.write(msg.as_bytes())).ok();
+        if report != *last_report {
+            hid_device.lock(|hid| hid.push_input(&report).ok());
+            *last_report = report;
+        }
 
         // TODO see if we can do this on a periodic timer instead,
         // so the task execution isn't fallible
-        tick::spawn_after(Duration::<u64, 1, 1000>::micros(500)).unwrap();
+        tick::spawn_after(Duration::<u64, 1, 1000>::millis(1)).unwrap();
     }
 
     #[task(binds = USB_HP_CAN_TX, priority = 2, shared = [usb_device, serial_port, hid_device, bkp])]
@@ -300,15 +306,6 @@ mod app {
         return bkp.dr[0].read().bits() == RESET_TO_BOOTLOADER;
     }
 
-    // #[task(binds = TC3, priority = 2, shared = [microseconds], local = [timer])]
-    // fn timer_tick(ctx: timer_tick::Context) {
-    //     if ctx.local.timer.wait().is_ok() {
-    //         let mut ms = ctx.shared.microseconds;
-
-    //         ms.lock(|ms| *ms += 1);
-    //     }
-    // }
-
     fn init_usb<'a>(
         allocator: &'a UsbBusAllocator<UsbBus<Peripheral>>,
     ) -> (
@@ -317,14 +314,13 @@ mod app {
         HIDClass<'a, UsbBus<Peripheral>>,
     ) {
         let serial = SerialPort::new(allocator);
-        let hid_device = HIDClass::new_ep_in(allocator, JoystickReport::desc(), 10);
+        let hid_device = HIDClass::new_ep_in(allocator, JoystickReport::desc(), 4);
 
         // https://github.com/obdev/v-usb/blob/master/usbdrv/USB-IDs-for-free.txt
         let usb_device = UsbDeviceBuilder::new(allocator, UsbVidPid(0x16c0, 0x27dc))
             .manufacturer("Niche http://niche.london/")
             .product("Spinny development board")
             .serial_number("niche.london:Spinny-v0.1")
-            .composite_with_iads()
             .build();
 
         (usb_device, serial, hid_device)
