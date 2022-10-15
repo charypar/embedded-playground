@@ -81,19 +81,14 @@ mod app {
 
     #[init(local = [usb_bus: Option<UsbBusAllocator<UsbBus<Peripheral>>> = None])]
     fn init(ctx: init::Context) -> (Shared, Local, init::Monotonics) {
-        // Begin hardware initialisation
-        // FIXME pull all of this out
+        // Set up the real-time clock, using the 32K oscillator clock
+        // TODO this can be clocked by a subdivided clock for lower power consumption (probably)
+        let rtc = Systick::new(ctx.core.SYST, 36_000_000);
 
         let device = Device::new(ctx.device);
 
         let usb_bus = ctx.local.usb_bus.insert(device.usb);
         let usb = Usb::new(usb_bus, Report::desc());
-
-        // Set up the real-time clock, using the 32K oscillator clock
-        // TODO this can be clocked by a subdivided clock for lower power consumption (probably)
-        let rtc = Systick::new(ctx.core.SYST, 36_000_000);
-
-        // End Hardware initialisation
 
         let panel = Panel {
             buttons: [
