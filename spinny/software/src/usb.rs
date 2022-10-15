@@ -4,42 +4,8 @@ use usb_device::UsbError;
 
 use usbd_serial::SerialPort;
 
-use usbd_hid::descriptor::gen_hid_descriptor;
-use usbd_hid::descriptor::generator_prelude::*;
 use usbd_hid::descriptor::AsInputReport;
 use usbd_hid::hid_class::HIDClass;
-
-#[gen_hid_descriptor(
-    (collection = APPLICATION, usage_page = GENERIC_DESKTOP, usage = JOYSTICK) = {
-        (collection = PHYSICAL, usage = JOYSTICK) = {
-            (usage_page = BUTTON, usage_min = BUTTON_1, usage_max = 0x07) = {
-                #[packed_bits 7] #[item_settings data,variable,absolute] buttons=input;
-            };
-        }
-    }
-)]
-#[derive(PartialEq)]
-pub struct Report {
-    pub buttons: u8,
-}
-
-impl Report {
-    pub fn new() -> Self {
-        Self { buttons: 0 }
-    }
-
-    pub fn set_button(&mut self, n: usize, value: bool) {
-        if n > 6 {
-            return;
-        }
-
-        if value {
-            self.buttons |= 1 << n
-        } else {
-            self.buttons &= !(1 << n)
-        }
-    }
-}
 
 // USB Interface
 pub struct Usb<'a, B, IR>

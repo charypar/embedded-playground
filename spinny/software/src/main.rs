@@ -4,9 +4,46 @@
 use panic_halt as _;
 use rtic::app;
 
+use usbd_hid::descriptor::gen_hid_descriptor;
+use usbd_hid::descriptor::generator_prelude::*;
+
+use inputs::PanelReport;
+
 mod device;
 mod inputs;
 mod usb;
+
+#[gen_hid_descriptor(
+    (collection = APPLICATION, usage_page = GENERIC_DESKTOP, usage = JOYSTICK) = {
+        (collection = PHYSICAL, usage = JOYSTICK) = {
+            (usage_page = BUTTON, usage_min = BUTTON_1, usage_max = 0x07) = {
+                #[packed_bits 7] #[item_settings data,variable,absolute] buttons=input;
+            };
+        }
+    }
+)]
+#[derive(PartialEq)]
+pub struct Report {
+    pub buttons: u8,
+}
+
+impl PanelReport for Report {
+    fn new() -> Self {
+        Self { buttons: 0 }
+    }
+
+    fn set_button(&mut self, n: usize, value: bool) {
+        if n > 6 {
+            return;
+        }
+
+        if value {
+            self.buttons |= 1 << n
+        } else {
+            self.buttons &= !(1 << n)
+        }
+    }
+}
 
 #[app(device = stm32f1xx_hal::pac, peripherals = true, dispatchers = [SPI1])]
 mod app {
@@ -22,16 +59,13 @@ mod app {
     use usbd_hid::descriptor::SerializedDescriptor;
 
     use crate::device::{Bootloader, Device};
-    use crate::inputs::{Button, Encoder};
-    use crate::usb::{Report, Usb};
+    use crate::inputs::{Button, Encoder, Panel};
+    use crate::usb::Usb;
+
+    use super::Report;
 
     #[monotonic(binds = SysTick, default = true)]
     type RtcMonotonic = Systick<1000>;
-
-    pub struct Inputs {
-        buttons: [Button; 5],
-        encoder: Encoder,
-    }
 
     #[shared]
     struct Shared {
@@ -42,7 +76,7 @@ mod app {
     #[local]
     struct Local {
         bootloader: Bootloader,
-        inputs: Inputs,
+        panel: Panel<5, 1>,
     }
 
     #[init(local = [usb_bus: Option<UsbBusAllocator<UsbBus<Peripheral>>> = None])]
@@ -61,7 +95,7 @@ mod app {
 
         // End Hardware initialisation
 
-        let inputs = Inputs {
+        let panel = Panel {
             buttons: [
                 Button::new(device.pb3.erase(), false, 20),
                 Button::new(device.pb4.erase(), false, 20),
@@ -69,22 +103,20 @@ mod app {
                 Button::new(device.pb7.erase(), false, 20),
                 Button::new(device.pb5.erase(), false, 20),
             ],
-            encoder: Encoder::new(device.pb9.erase(), device.pb8.erase(), 20),
+            encoders: [Encoder::new(device.pb8.erase(), device.pb9.erase(), 20)],
         };
 
         // Program state
 
-        let mut shared = Shared {
+        let shared = Shared {
             led: device.led,
             usb,
         };
 
         let local = Local {
             bootloader: device.bootloader,
-            inputs,
+            panel,
         };
-
-        shared.led.set_low();
 
         // TODO see if we can do this on a periodic timer instead,
         // so the task execution isn't fallible
@@ -93,45 +125,18 @@ mod app {
         (shared, local, init::Monotonics(rtc))
     }
 
-    #[task(shared = [usb, led], local = [inputs])]
+    #[task(shared = [usb, led], local = [panel])]
     fn tick(ctx: tick::Context) {
-        let inputs = ctx.local.inputs;
+        let panel = ctx.local.panel;
         let mut led = ctx.shared.led;
-
-        // Read inputs and update state
 
         led.lock(|led| led.set_low());
 
-        // Scan the inputs
+        panel.scan();
+        let report = panel.report::<Report>();
 
-        inputs.buttons[0].scan();
-        inputs.buttons[1].scan();
-        inputs.buttons[2].scan();
-        inputs.buttons[3].scan();
-        inputs.buttons[4].scan();
-        inputs.encoder.scan();
-
-        // Report state as HID joystick
-
-        let buttons = [
-            inputs.buttons[0].get(),
-            inputs.buttons[1].get(),
-            inputs.buttons[2].get(),
-            inputs.buttons[3].get(),
-            inputs.buttons[4].get(),
-            inputs.encoder.get_cw(),
-            inputs.encoder.get_ccw(),
-        ];
-
-        // Debug LED
-        if buttons.iter().any(|b| *b) {
+        if report.buttons > 0 {
             led.lock(|led| led.set_high());
-        }
-
-        let mut report = Report::new();
-
-        for (button, state) in buttons.iter().enumerate() {
-            report.set_button(button, *state);
         }
 
         let mut usb = ctx.shared.usb;

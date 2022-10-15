@@ -64,7 +64,8 @@ impl Device {
             pin_dp: usb_dp.into_floating_input(&mut gpioa.crh),
         });
 
-        let led = gpioc.pc13.into_push_pull_output(&mut gpioc.crh);
+        let mut led = gpioc.pc13.into_push_pull_output(&mut gpioc.crh);
+        led.set_low();
 
         Device {
             pb3: pb3.into_pull_up_input(&mut gpiob.crl),
