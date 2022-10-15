@@ -1,15 +1,13 @@
-use hal::usb::{Peripheral, UsbBus};
-use stm32f1xx_hal as hal;
-
-use usb_device::class_prelude::UsbBusAllocator;
+use usb_device::class_prelude::{UsbBus, UsbBusAllocator};
 use usb_device::device::{UsbDevice, UsbDeviceBuilder, UsbVidPid};
 use usb_device::UsbError;
-use usbd_hid::descriptor::AsInputReport;
-use usbd_hid::hid_class::HIDClass;
+
 use usbd_serial::SerialPort;
 
 use usbd_hid::descriptor::gen_hid_descriptor;
 use usbd_hid::descriptor::generator_prelude::*;
+use usbd_hid::descriptor::AsInputReport;
+use usbd_hid::hid_class::HIDClass;
 
 #[gen_hid_descriptor(
     (collection = APPLICATION, usage_page = GENERIC_DESKTOP, usage = JOYSTICK) = {
@@ -44,24 +42,26 @@ impl Report {
 }
 
 // USB Interface
-pub struct Usb<'a, IR>
+pub struct Usb<'a, B, IR>
 where
     IR: AsInputReport + PartialEq<IR>,
+    B: UsbBus,
 {
-    device: UsbDevice<'a, UsbBus<Peripheral>>,
-    serial: SerialPort<'a, UsbBus<Peripheral>>,
-    hid: HIDClass<'a, UsbBus<Peripheral>>,
+    device: UsbDevice<'a, B>,
+    serial: SerialPort<'a, B>,
+    hid: HIDClass<'a, B>,
     last_report: Option<IR>, // Last input report sent
 }
 
-impl<'a, IR> Usb<'a, IR>
+impl<'a, B, IR> Usb<'a, B, IR>
 where
     IR: AsInputReport + PartialEq<IR>,
+    B: UsbBus,
 {
     pub fn new(
-        allocator: &'a UsbBusAllocator<UsbBus<Peripheral>>,
+        allocator: &'a UsbBusAllocator<B>,
         report_descriptor: &'static [u8],
-    ) -> Usb<'a, IR> {
+    ) -> Usb<'a, B, IR> {
         let serial_port = SerialPort::new(allocator);
         let hid_device = HIDClass::new_ep_in(allocator, report_descriptor, 4);
 

@@ -51,7 +51,7 @@ mod app {
 
     #[shared]
     struct Shared {
-        usb: Usb<'static, Report>,
+        usb: Usb<'static, UsbBus<Peripheral>, Report>,
         led: PC13<Output<PushPull>>,
     }
 
