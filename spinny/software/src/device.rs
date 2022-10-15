@@ -12,35 +12,15 @@ use hal::usb::{Peripheral, UsbBus};
 
 use usb_device::class_prelude::UsbBusAllocator;
 
-pub struct InputPins {
-    pins: (
-        PB3<Input<PullUp>>,
-        PB4<Input<PullUp>>,
-        PB5<Input<PullUp>>,
-        PB6<Input<PullUp>>,
-        PB7<Input<PullUp>>,
-        PB8<Input<PullUp>>,
-        PB9<Input<PullUp>>,
-    ),
-}
-
-impl InputPins {
-    pub fn scan(&self) -> [bool; 7] {
-        [
-            self.pins.0.is_low(),
-            self.pins.1.is_low(),
-            self.pins.2.is_low(),
-            self.pins.3.is_low(),
-            self.pins.4.is_low(),
-            self.pins.5.is_low(),
-            self.pins.6.is_low(),
-        ]
-    }
-}
-
 pub struct Device {
     pub bootloader: Bootloader,
-    pub pins: InputPins,
+    pub pb3: PB3<Input<PullUp>>,
+    pub pb4: PB4<Input<PullUp>>,
+    pub pb5: PB5<Input<PullUp>>,
+    pub pb6: PB6<Input<PullUp>>,
+    pub pb7: PB7<Input<PullUp>>,
+    pub pb8: PB8<Input<PullUp>>,
+    pub pb9: PB9<Input<PullUp>>,
     pub led: PC13<Output<PushPull>>,
     pub usb: UsbBusAllocator<UsbBus<Peripheral>>,
 }
@@ -84,20 +64,16 @@ impl Device {
             pin_dp: usb_dp.into_floating_input(&mut gpioa.crh),
         });
 
-        let pb3 = pb3.into_pull_up_input(&mut gpiob.crl);
-        let pb4 = pb4.into_pull_up_input(&mut gpiob.crl);
-        let pb5 = gpiob.pb5.into_pull_up_input(&mut gpiob.crl);
-        let pb6 = gpiob.pb6.into_pull_up_input(&mut gpiob.crl);
-        let pb7 = gpiob.pb7.into_pull_up_input(&mut gpiob.crl);
-        let pb8 = gpiob.pb8.into_pull_up_input(&mut gpiob.crh);
-        let pb9 = gpiob.pb9.into_pull_up_input(&mut gpiob.crh);
-
         let led = gpioc.pc13.into_push_pull_output(&mut gpioc.crh);
 
         Device {
-            pins: InputPins {
-                pins: (pb3, pb4, pb5, pb6, pb7, pb8, pb9),
-            },
+            pb3: pb3.into_pull_up_input(&mut gpiob.crl),
+            pb4: pb4.into_pull_up_input(&mut gpiob.crl),
+            pb5: gpiob.pb5.into_pull_up_input(&mut gpiob.crl),
+            pb6: gpiob.pb6.into_pull_up_input(&mut gpiob.crl),
+            pb7: gpiob.pb7.into_pull_up_input(&mut gpiob.crl),
+            pb8: gpiob.pb8.into_pull_up_input(&mut gpiob.crh),
+            pb9: gpiob.pb9.into_pull_up_input(&mut gpiob.crh),
             bootloader,
             led,
             usb,

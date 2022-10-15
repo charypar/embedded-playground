@@ -5,6 +5,7 @@ use panic_halt as _;
 use rtic::app;
 
 mod device;
+mod inputs;
 mod usb;
 
 #[app(device = stm32f1xx_hal::pac, peripherals = true, dispatchers = [SPI1])]
@@ -20,19 +21,16 @@ mod app {
     use usb_device::class_prelude::UsbBusAllocator;
     use usbd_hid::descriptor::SerializedDescriptor;
 
-    use crate::device::{Bootloader, Device, InputPins};
+    use crate::device::{Bootloader, Device};
+    use crate::inputs::{Button, Encoder};
     use crate::usb::{Report, Usb};
-
-    use cross::debounce::Debounced;
-    use cross::rotary::Rotary;
 
     #[monotonic(binds = SysTick, default = true)]
     type RtcMonotonic = Systick<1000>;
 
-    pub struct InputsState {
-        buttons: [Debounced<bool>; 4],
-        encoder: Rotary,
-        encoder_button: Debounced<bool>,
+    pub struct Inputs {
+        buttons: [Button; 5],
+        encoder: Encoder,
     }
 
     #[shared]
@@ -44,8 +42,7 @@ mod app {
     #[local]
     struct Local {
         bootloader: Bootloader,
-        pins: InputPins,
-        inputs_state: InputsState,
+        inputs: Inputs,
     }
 
     #[init(local = [usb_bus: Option<UsbBusAllocator<UsbBus<Peripheral>>> = None])]
@@ -64,18 +61,15 @@ mod app {
 
         // End Hardware initialisation
 
-        // Input
-        // TODO factor this out
-
-        let inputs_state = InputsState {
+        let inputs = Inputs {
             buttons: [
-                Debounced::new(false, 20),
-                Debounced::new(false, 20),
-                Debounced::new(false, 20),
-                Debounced::new(false, 20),
+                Button::new(device.pb3.erase(), false, 20),
+                Button::new(device.pb4.erase(), false, 20),
+                Button::new(device.pb6.erase(), false, 20),
+                Button::new(device.pb7.erase(), false, 20),
+                Button::new(device.pb5.erase(), false, 20),
             ],
-            encoder: Rotary::new(20),
-            encoder_button: Debounced::new(false, 20),
+            encoder: Encoder::new(device.pb9.erase(), device.pb8.erase(), 20),
         };
 
         // Program state
@@ -87,8 +81,7 @@ mod app {
 
         let local = Local {
             bootloader: device.bootloader,
-            inputs_state,
-            pins: device.pins,
+            inputs,
         };
 
         shared.led.set_low();
@@ -100,38 +93,34 @@ mod app {
         (shared, local, init::Monotonics(rtc))
     }
 
-    #[task(shared = [usb, led], local = [pins, inputs_state])]
+    #[task(shared = [usb, led], local = [inputs])]
     fn tick(ctx: tick::Context) {
-        let pins = ctx.local.pins;
-        let state = ctx.local.inputs_state;
+        let inputs = ctx.local.inputs;
         let mut led = ctx.shared.led;
 
         // Read inputs and update state
 
-        let pin_state = pins.scan();
-
-        // FIXME centralise the pin mapping and make it less error prone
-        // Ideally map pin type straight to an Encoder, Button or Switch
-        state.encoder_button.update(pin_state[2]);
-        state.encoder.update(pin_state[6], pin_state[5]);
-
-        state.buttons[0].update(pin_state[0]);
-        state.buttons[1].update(pin_state[1]);
-        state.buttons[2].update(pin_state[3]);
-        state.buttons[3].update(pin_state[4]);
-
         led.lock(|led| led.set_low());
+
+        // Scan the inputs
+
+        inputs.buttons[0].scan();
+        inputs.buttons[1].scan();
+        inputs.buttons[2].scan();
+        inputs.buttons[3].scan();
+        inputs.buttons[4].scan();
+        inputs.encoder.scan();
 
         // Report state as HID joystick
 
         let buttons = [
-            state.buttons[0].get(),
-            state.buttons[1].get(),
-            state.buttons[2].get(),
-            state.buttons[3].get(),
-            state.encoder.get_cw(),
-            state.encoder.get_ccw(),
-            state.encoder_button.get(),
+            inputs.buttons[0].get(),
+            inputs.buttons[1].get(),
+            inputs.buttons[2].get(),
+            inputs.buttons[3].get(),
+            inputs.buttons[4].get(),
+            inputs.encoder.get_cw(),
+            inputs.encoder.get_ccw(),
         ];
 
         // Debug LED
