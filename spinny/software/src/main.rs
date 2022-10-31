@@ -19,17 +19,26 @@ mod usb;
             (usage_page = BUTTON, usage_min = BUTTON_1, usage_max = 0x07) = {
                 #[packed_bits 7] #[item_settings data,variable,absolute] buttons=input;
             };
+            (usage_page = GENERIC_DESKTOP, ) = { 
+                (usage = 0x37, ) = { // 0x37 is a Dial
+                    #[item_settings data,variable,relative] encoder=input;
+                };
+            };
         }
     }
 )]
-#[derive(PartialEq)]
+#[derive(PartialEq, Eq)]
 pub struct Report {
     pub buttons: u8,
+    pub encoder: i8,
 }
 
 impl PanelReport for Report {
     fn new() -> Self {
-        Self { buttons: 0 }
+        Self {
+            buttons: 0,
+            encoder: 0,
+        }
     }
 
     fn set_button(&mut self, n: usize, value: bool) {
@@ -42,6 +51,10 @@ impl PanelReport for Report {
         } else {
             self.buttons &= !(1 << n)
         }
+    }
+
+    fn set_encoder(&mut self, _n: usize, value: i8) {
+        self.encoder = value;
     }
 }
 
@@ -98,7 +111,7 @@ mod app {
                 Button::new(device.pb7.erase(), false, 20),
                 Button::new(device.pb5.erase(), false, 20),
             ],
-            encoders: [Encoder::new(device.pb8.erase(), device.pb9.erase(), 20)],
+            encoders: [Encoder::new(device.pb8.erase(), device.pb9.erase(), 30)],
         };
 
         // Program state

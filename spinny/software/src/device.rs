@@ -55,6 +55,7 @@ impl Device {
         // Enable USB
 
         // FIXME why is this a thing again?
+        // and do we need to sleep after?
         let mut usb_dp = gpioa.pa12.into_push_pull_output(&mut gpioa.crh);
         usb_dp.set_low();
 

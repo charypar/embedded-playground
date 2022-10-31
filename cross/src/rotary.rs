@@ -23,9 +23,9 @@ pub enum Out {
 pub struct Rotary {
     hold_count: u8, // how long should the output stay on/off
     state: State,
-    out_value: Out,
-    out_count: u8,
-    out_counter: u8,
+    out_value: Out,  // current direction of spinning
+    out_count: u8,   // total number of valid output in the direction
+    out_counter: u8, // timer/counter decremented at every scan
 }
 
 impl Rotary {
@@ -68,15 +68,21 @@ impl Rotary {
         match (output, self.out_value) {
             (Out::CW, Out::CW) => self.out_count += 1,
             (Out::CCW, Out::CCW) => self.out_count += 1,
+            // Neither output direction does nothing
             (Out::None, _) => (),
+            // on change of direction
             (cw_or_ccw, _different_than_output) => {
+                // update the direction
                 self.out_value = cw_or_ccw;
+                // reset the count
                 self.out_count = 1;
+                // start countdown
                 self.out_counter = self.hold_count * 2;
             }
         }
 
         // Output timer/counter state update
+        // FIXME write tests, stupid.
 
         self.out_counter -= 1; // decrement by 1 tick
         if self.out_counter < 1 {
@@ -95,17 +101,13 @@ impl Rotary {
     }
 
     pub fn get(&self) -> (Out, i8) {
-        if self.out_value == Out::None || self.out_counter < self.hold_count {
-            return (Out::None, 0);
-        }
-
         let velocity = match self.out_value {
             Out::CW => self.out_count as i8,
             Out::CCW => -(self.out_count as i8),
             Out::None => 0,
         };
 
-        return (self.out_value, velocity);
+        (self.out_value, velocity)
     }
 
     pub fn get_cw(&self) -> bool {

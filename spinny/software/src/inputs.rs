@@ -4,12 +4,15 @@ use stm32f1xx_hal as hal;
 use hal::gpio::{ErasedPin, Input, PullUp};
 
 use cross::debounce::Debounced;
-use cross::rotary::Rotary;
+use cross::rotary::{Out, Rotary};
+
+const CURVE: [i8; 5] = [0, 1, 2, 5, 10];
 
 pub trait PanelReport {
     fn new() -> Self;
 
     fn set_button(&mut self, n: usize, value: bool);
+    fn set_encoder(&mut self, n: usize, value: i8);
 }
 
 pub struct Panel<const B: usize, const E: usize> {
@@ -39,6 +42,17 @@ impl<const B: usize, const E: usize> Panel<B, E> {
         let base = B;
 
         for (idx, encoder) in self.encoders.iter().enumerate() {
+            let (_, val) = encoder.get();
+            let sign = val.signum();
+            let abs = val.unsigned_abs();
+
+            let val = if abs as usize >= CURVE.len() {
+                CURVE[CURVE.len() - 1] * sign
+            } else {
+                CURVE[abs as usize] * sign
+            };
+
+            report.set_encoder(idx, val); // make the rotary non-linear
             report.set_button(base + 2 * idx, encoder.get_ccw());
             report.set_button(base + 2 * idx + 1, encoder.get_cw());
         }
@@ -64,6 +78,10 @@ impl Encoder {
 
     pub fn scan(&mut self) {
         self.state.update(self.pin_a.is_low(), self.pin_b.is_low());
+    }
+
+    pub fn get(&self) -> (Out, i8) {
+        self.state.get()
     }
 
     pub fn get_cw(&self) -> bool {
